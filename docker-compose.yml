@@ -1,0 +1,182 @@
+# docker-compose.yml — orquestração do backend da Abbatia (Scriptorium)
+# para rodar no CasaOS (Debian 13) da homelab.
+#
+# Este arquivo fica na RAIZ do monorepo (ao lado das pastas Scriptorium/ e
+# Oratorium/) de propósito: é o ponto de entrada único para subir todo o
+# ecossistema — hoje só o backend, mas no futuro o Oratorium (frontend)
+# ganhará seu próprio serviço aqui também, no mesmo arquivo.
+#
+# COMO USAR:
+#   1) Ajuste o IP do LM Studio na âncora `x-lm-studio-url` logo abaixo.
+#   2) Rode: docker compose up -d --build
+#   3) A API ficará disponível em http://<ip-do-casaos>:8110/api/devotional/today
+#      (ou em /swagger para uma interface visual de teste — ver Program.cs)
+#
+# Definimos DOIS SERVIÇOS a partir do MESMO Dockerfile
+# (Scriptorium/Dockerfile), cada um apontando para um `target` de build
+# diferente (ver comentários dentro do Dockerfile sobre multi-stage build):
+#   - scriptorium-api:    processo Kestrel, responde requisições HTTP (leitura rápida do SQLite)
+#   - scriptorium-worker: processo em background, faz o scraping/tradução de madrugada e ESCREVE no SQLite
+#
+# ÂNCORA YAML — FONTE ÚNICA DA VERDADE PARA A URL DO LM STUDIO
+# ------------------------------------------------------------
+# Na primeira versão deste arquivo, a URL do LM Studio era declarada
+# SEPARADAMENTE em cada serviço (`${LM_STUDIO_BASE_URL:-...}` repetido duas
+# vezes). Isso causou um bug real: ao editar o valor em um dos serviços (via
+# CasaOS ou manualmente), o OUTRO serviço continuava com o valor antigo,
+# porque eram duas strings independentes sem nenhuma ligação entre si — o
+# YAML não tinha como saber que deveriam ser sempre iguais.
+#
+# A correção usa uma ÂNCORA YAML (`&lm-studio-url`), um recurso NATIVO do
+# formato YAML (não é coisa do Docker) que permite declarar um valor UMA
+# ÚNICA VEZ e reutilizá-lo em múltiplos lugares via uma REFERÊNCIA
+# (`*lm-studio-url`). Assim, existe uma ÚNICA linha no arquivo inteiro que
+# você precisa editar para trocar o IP do LM Studio — os dois serviços
+# sempre ficam sincronizados automaticamente, porque tecnicamente são o
+# MESMO valor, não duas cópias.
+#
+# IMPORTANTE se você usa a interface do CasaOS para editar variáveis de
+# ambiente: painéis de "Environment Variables" de gerenciadores de container
+# costumam reescrever o arquivo e "achatar" (expandir) âncoras YAML em
+# valores literais duplicados — o que reintroduziria o mesmo bug. Para
+# EDITAR O IP DO LM STUDIO COM SEGURANÇA, prefira sempre editar o arquivo
+# docker-compose.yml diretamente (pela aba de "Compose File"/edição de
+# arquivo do CasaOS, ou por SSH) em vez do formulário de variáveis
+# individuais por container.
+#
+# O `${LM_STUDIO_BASE_URL:-...}` continua funcionando como antes para quem
+# preferir sobrescrever via variável de ambiente do shell/arquivo .env na
+# hora de rodar `docker compose up` — só que agora só existe UMA ocorrência
+# dele no arquivo inteiro.
+x-lm-studio-url: &lm-studio-url "${LM_STUDIO_BASE_URL:-http://192.168.0.2:1234}"
+
+services:
+  scriptorium-api:
+    build:
+      # O "context" é a pasta Scriptorium/ (onde vive a Scriptorium.sln e
+      # todo o código-fonte) — é a partir dali que o Dockerfile enxerga os
+      # caminhos relativos usados nos comandos COPY.
+      context: ./Scriptorium
+      dockerfile: Dockerfile
+      target: api-final
+    image: abbatia/scriptorium-api:latest
+    container_name: abbatia-scriptorium-api
+    restart: unless-stopped
+    ports:
+      # Porta externa (host):porta interna (container, definida no Dockerfile via ASPNETCORE_URLS).
+      # Ajuste a porta externa aqui se 8080 já estiver em uso no seu CasaOS.
+      - "8110:8080"
+    environment:
+      # Connection string do SQLite: aponta para dentro do VOLUME nomeado
+      # "scriptorium-data" (declarado no final deste arquivo), montado em
+      # /data dentro do container — assim o arquivo .db sobrevive a
+      # reinicializações e atualizações do container.
+      ConnectionStrings__Default: "Data Source=/data/scriptorium.db"
+
+      # Referencia a âncora `x-lm-studio-url` definida no topo do arquivo —
+      # ver o comentário grande logo acima de `services:` para entender por
+      # que isso substituiu a declaração duplicada anterior.
+      LmStudio__BaseUrl: *lm-studio-url
+    volumes:
+      - scriptorium-data:/data
+    # ------------------------------------------------------------------
+    # LIMITE DE MEMÓRIA (e CPU) — sem isso, um container .NET pode, em
+    # teoria, consumir toda a RAM disponível no host se algo der muito
+    # errado (ex: um vazamento de memória, um loop de retry sem limite).
+    # Isso é especialmente importante numa homelab onde o mesmo servidor
+    # roda VÁRIOS outros apps do CasaOS ao mesmo tempo — um container sem
+    # limite pode "sufocar" os demais.
+    #
+    # Por que 256MB é um valor aceitável aqui: a API é um processo ASP.NET
+    # Core minimalista, cuja única tarefa é ler linhas do SQLite e devolver
+    # JSON — não faz scraping nem carrega páginas HTML inteiras em memória.
+    # Na prática, uma API assim roda folgada com 80-120MB; 256MB dá uma
+    # margem de segurança generosa sem desperdiçar RAM do host.
+    #
+    # NOTA TÉCNICA (.NET + containers): o Garbage Collector do .NET, desde o
+    # .NET Core 3.0, é "cgroup-aware" — ele detecta automaticamente o limite
+    # de memória do container (via cgroups do Linux, o mecanismo por trás do
+    # `mem_limit` do Docker) e dimensiona o heap gerenciado de acordo, sem
+    # precisar de nenhuma configuração adicional. Ou seja: basta definir o
+    # limite aqui embaixo que o runtime .NET já se comporta corretamente
+    # dentro dele.
+    #
+    # Definimos o limite em DOIS FORMATOS por compatibilidade: `deploy.resources`
+    # é o formato moderno da Compose Specification (funciona com
+    # `docker compose up` mesmo fora do modo Swarm nas versões atuais do
+    # Docker Compose); `mem_limit`/`mem_reservation` são o formato legado que
+    # ferramentas de gerenciamento gráficas como o CasaOS costumam ler/exibir
+    # nos seus próprios painéis de "limite de recursos". Ter os dois garante
+    # que o limite seja respeitado independentemente de qual caminho (CLI
+    # pura ou UI do CasaOS) está efetivamente subindo o container.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
+    mem_reservation: 128m
+    healthcheck:
+      # Usa o endpoint GET /health (implementado em Scriptorium.API/Program.cs)
+      # para o Docker saber se o container está realmente pronto para
+      # receber tráfego, reiniciando-o automaticamente se parar de responder.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  scriptorium-worker:
+    build:
+      context: ./Scriptorium
+      dockerfile: Dockerfile
+      target: worker-final
+    image: abbatia/scriptorium-worker:latest
+    container_name: abbatia-scriptorium-worker
+    restart: unless-stopped
+    environment:
+      # Mesmo arquivo SQLite da API, mesmo volume — o Worker ESCREVE aqui,
+      # a API só LÊ (ver comentários em DailyDevotionalWorker.cs sobre essa
+      # separação de responsabilidades).
+      ConnectionStrings__Default: "Data Source=/data/scriptorium.db"
+      LmStudio__BaseUrl: *lm-studio-url
+
+      # Configuração do agendamento diário (ver WorkerScheduleOptions.cs).
+      # HourUtc=6 equivale a ~03h da madrugada em Brasília (UTC-3).
+      WorkerSchedule__HourUtc: "6"
+      WorkerSchedule__DaysAhead: "7"
+      # Em produção real, normalmente deixaríamos "false" para não disparar
+      # uma raspagem completa toda vez que o container reinicia (ex: após
+      # uma atualização) — mas "true" é conveniente para você VER o Worker
+      # funcionando logo após o primeiro `docker compose up`, sem esperar
+      # até a próxima madrugada. Ajuste para "false" quando o sistema já
+      # estiver rodando estável na sua homelab.
+      WorkerSchedule__RunImmediatelyOnStartup: "true"
+    volumes:
+      - scriptorium-data:/data
+    # Mesma lógica do limite de memória da API (ver comentário detalhado
+    # acima, no serviço scriptorium-api). O Worker também é leve — faz
+    # requisições HTTP e faz o parsing de HTML com HtmlAgilityPack, que
+    # segura no máximo algumas centenas de KB por vez (a maior página, o
+    # calendário anual do gcatholic.org, tem ~170KB) — 256MB é confortável.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
+    mem_reservation: 128m
+
+# Volume NOMEADO (gerenciado pelo próprio Docker, em vez de um bind mount
+# para uma pasta específica do host) — mais portátil entre diferentes
+# instalações do CasaOS, já que não depende de um caminho absoluto do
+# sistema de arquivos do host existir de antemão. Se preferir ter acesso
+# direto ao arquivo .db pelo File Manager do CasaOS, troque por um bind
+# mount, ex: "/DATA/AppData/Abbatia/dados-sqlite:/data".
+volumes:
+  scriptorium-data:
+    driver: local

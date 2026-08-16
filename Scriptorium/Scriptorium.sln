@@ -1,0 +1,55 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{384BD902-60B0-437C-890A-FB4C420D47A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scriptorium.Domain", "src\Scriptorium.Domain\Scriptorium.Domain.csproj", "{070BD848-EF21-43E4-9C38-6BB7996498E3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scriptorium.Application", "src\Scriptorium.Application\Scriptorium.Application.csproj", "{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scriptorium.Infrastructure", "src\Scriptorium.Infrastructure\Scriptorium.Infrastructure.csproj", "{0B0020C1-84BA-4F81-A50B-CE06BF39815C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scriptorium.API", "src\Scriptorium.API\Scriptorium.API.csproj", "{7C265BDD-AC5B-472B-82FC-6D26A1019DC8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scriptorium.Worker", "src\Scriptorium.Worker\Scriptorium.Worker.csproj", "{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{070BD848-EF21-43E4-9C38-6BB7996498E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{070BD848-EF21-43E4-9C38-6BB7996498E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{070BD848-EF21-43E4-9C38-6BB7996498E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{070BD848-EF21-43E4-9C38-6BB7996498E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0B0020C1-84BA-4F81-A50B-CE06BF39815C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0B0020C1-84BA-4F81-A50B-CE06BF39815C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0B0020C1-84BA-4F81-A50B-CE06BF39815C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0B0020C1-84BA-4F81-A50B-CE06BF39815C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C265BDD-AC5B-472B-82FC-6D26A1019DC8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C265BDD-AC5B-472B-82FC-6D26A1019DC8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C265BDD-AC5B-472B-82FC-6D26A1019DC8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C265BDD-AC5B-472B-82FC-6D26A1019DC8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{070BD848-EF21-43E4-9C38-6BB7996498E3} = {384BD902-60B0-437C-890A-FB4C420D47A4}
+		{D253D7C7-E100-4A6F-8A0E-D23DC3B124B6} = {384BD902-60B0-437C-890A-FB4C420D47A4}
+		{0B0020C1-84BA-4F81-A50B-CE06BF39815C} = {384BD902-60B0-437C-890A-FB4C420D47A4}
+		{7C265BDD-AC5B-472B-82FC-6D26A1019DC8} = {384BD902-60B0-437C-890A-FB4C420D47A4}
+		{A8A0FE0E-9A2D-4DC9-953E-072FB7DBFFD1} = {384BD902-60B0-437C-890A-FB4C420D47A4}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# .NET (Scriptorium)
+# ---------------------------------------------------------------------------
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---------------------------------------------------------------------------
+# Bancos de dados SQLite (dev/teste local) — o banco real de produção vive
+# dentro do volume Docker nomeado "scriptorium-data", nunca no repositório.
+# ---------------------------------------------------------------------------
+*.db
+*.db-shm
+*.db-wal
+
+# ---------------------------------------------------------------------------
+# IDEs / editores
+# ---------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.DS_Store
+
+# ---------------------------------------------------------------------------
+# Configuração local do Claude Code (específica desta máquina/sessão —
+# settings.json compartilhado, se existir, continua versionado normalmente)
+# ---------------------------------------------------------------------------
+.claude/settings.local.json
+
+# ---------------------------------------------------------------------------
+# Segredos — nunca versionar credenciais reais
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example

@@ -1,0 +1,19 @@
+# Evita que artefatos de build LOCAIS (gerados pelo `dotnet build`/`dotnet run`
+# rodados diretamente na sua máquina, fora do Docker) sejam enviados junto
+# com o "contexto de build" para o daemon do Docker. Sem isso, o Docker
+# copiaria DLLs e caches de restore já compilados localmente (que podem ser
+# de uma plataforma diferente da imagem Linux do container) para dentro da
+# imagem, além de deixar o build desnecessariamente lento e pesado.
+**/bin/
+**/obj/
+**/.vs/
+
+# Arquivos de banco de dados gerados durante testes locais/manuais — nunca
+# devem parar dentro da imagem (o banco real vive no volume Docker montado
+# em tempo de execução, não na imagem).
+*.db
+*.db-shm
+*.db-wal
+
+.git/
+.gitignore

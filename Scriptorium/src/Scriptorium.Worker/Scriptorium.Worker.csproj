@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Scriptorium.Worker-7f6f8770-1f67-49d3-ad47-d576aa6c8b7c</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scriptorium.Domain\Scriptorium.Domain.csproj" />
+    <ProjectReference Include="..\Scriptorium.Application\Scriptorium.Application.csproj" />
+    <ProjectReference Include="..\Scriptorium.Infrastructure\Scriptorium.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
