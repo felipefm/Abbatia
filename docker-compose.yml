@@ -8,15 +8,24 @@
 #
 # COMO USAR:
 #   1) Ajuste o IP do LM Studio na âncora `x-lm-studio-url` logo abaixo.
-#   2) Rode: docker compose up -d --build
-#   3) A API ficará disponível em http://<ip-do-casaos>:8110/api/devotional/today
+#   2) Ajuste ORATORIUM_API_BASE_URL (no serviço "oratorium") para o IP LAN
+#      real do seu CasaOS — é o endereço que o NAVEGADOR do usuário final
+#      vai usar para falar com a API, então precisa ser alcançável de fora
+#      do Docker (não pode ser "scriptorium-api", nome só resolvível dentro
+#      da rede interna do Compose).
+#   3) Rode: docker compose up -d --build
+#   4) O app ficará disponível em http://<ip-do-casaos>:8111/
+#      A API ficará disponível em http://<ip-do-casaos>:8110/api/devotional/today
 #      (ou em /swagger para uma interface visual de teste — ver Program.cs)
 #
-# Definimos DOIS SERVIÇOS a partir do MESMO Dockerfile
-# (Scriptorium/Dockerfile), cada um apontando para um `target` de build
-# diferente (ver comentários dentro do Dockerfile sobre multi-stage build):
+# Definimos TRÊS SERVIÇOS:
 #   - scriptorium-api:    processo Kestrel, responde requisições HTTP (leitura rápida do SQLite)
 #   - scriptorium-worker: processo em background, faz o scraping/tradução de madrugada e ESCREVE no SQLite
+#   - oratorium:          frontend React/PWA, servido por nginx, consumido pelo navegador do usuário
+# Os dois primeiros compartilham o MESMO Dockerfile (Scriptorium/Dockerfile),
+# cada um apontando para um `target` de build diferente (ver comentários
+# dentro do Dockerfile sobre multi-stage build); o Oratorium tem seu próprio
+# Dockerfile em Oratorium/Dockerfile.
 #
 # ÂNCORA YAML — FONTE ÚNICA DA VERDADE PARA A URL DO LM STUDIO
 # ------------------------------------------------------------
@@ -170,6 +179,46 @@ services:
           memory: 128M
     mem_limit: 256m
     mem_reservation: 128m
+
+  oratorium:
+    build:
+      context: ./Oratorium
+      dockerfile: Dockerfile
+    image: abbatia/oratorium:latest
+    container_name: abbatia-oratorium
+    restart: unless-stopped
+    ports:
+      - "8111:80"
+    environment:
+      # IMPORTANTE: diferente de LmStudio__BaseUrl (chamado de DENTRO de
+      # outro container, na rede interna do Docker), este valor é
+      # consumido pelo NAVEGADOR do usuário final, que roda fora de
+      # qualquer rede Docker — por isso precisa ser um endereço
+      # alcançável na sua LAN (o IP do CasaOS), nunca o nome interno do
+      # serviço "scriptorium-api". Trocar este valor só exige reiniciar o
+      # container (não uma reconstrução da imagem) — ver
+      # Oratorium/docker-entrypoint.d/40-oratorium-env.sh.
+      ORATORIUM_API_BASE_URL: "http://192.168.0.2:8110"
+    depends_on:
+      - scriptorium-api
+    # O Oratorium é só um servidor nginx entregando arquivos estáticos —
+    # ainda mais leve que a API/Worker em .NET, por isso o limite é bem
+    # menor (128MB é generoso; o nginx sozinho normalmente usa poucos MB).
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 32M
+    mem_limit: 128m
+    mem_reservation: 32m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 # Volume NOMEADO (gerenciado pelo próprio Docker, em vez de um bind mount
 # para uma pasta específica do host) — mais portátil entre diferentes

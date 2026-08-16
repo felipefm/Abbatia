@@ -264,3 +264,120 @@ dotnet ef database update \
 
 Ver comentários detalhados sobre por que `--startup-project` aponta para a
 API em `ScriptoriumDbContext.cs`.
+
+---
+
+## Oratorium (Frontend)
+
+### Estrutura de pastas
+
+```
+Oratorium/
+├── Dockerfile
+├── nginx.conf
+├── docker-entrypoint.d/40-oratorium-env.sh   ← gera env-config.js em runtime
+├── index.html
+├── public/
+│   ├── env-config.js         ← placeholder em dev; reescrito no container
+│   └── (ícones PWA: favicon.ico, pwa-*.png, apple-touch-icon-*.png)
+├── vite.config.ts             ← plugins: react, tailwindcss, vite-plugin-pwa
+├── vitest.config.ts           ← config separada de testes (jsdom + Testing Library)
+└── src/
+    ├── main.tsx                ← ponto de entrada, monta <BrowserRouter><App /></BrowserRouter>
+    ├── App.tsx                 ← definição das rotas
+    ├── App.smoke.test.tsx       ← teste de integração contra a API real
+    ├── env.d.ts                 ← tipos de import.meta.env e window.__ORATORIUM_CONFIG__
+    ├── api/
+    │   ├── types.ts              ← espelha 1:1 os DTOs de Scriptorium.API
+    │   └── client.ts             ← fetch wrapper, resolve a URL da API (runtime > build-time)
+    ├── hooks/
+    │   └── useDevotional.ts      ← busca dados + estados de loading/error/retry
+    ├── lib/
+    │   ├── date.ts                ← aritmética de datas yyyy-MM-dd em UTC
+    │   ├── liturgicalColor.ts     ← mapeia LiturgicalColor → cor hex/tema
+    │   └── readingLabels.ts       ← mapeia ReadingType → rótulo em PT-BR
+    ├── components/
+    │   ├── AppHeader.tsx, DateNav.tsx, LiturgicalHeader.tsx
+    │   ├── SaintCard.tsx, ReadingsList.tsx, HomilyCard.tsx
+    │   ├── StatusStates.tsx       ← LoadingState, ErrorState (distingue 404 de erro de rede)
+    │   └── Paragraphs.tsx         ← converte texto com \n\n em <p> reais
+    └── pages/
+        └── DevotionalPage.tsx     ← liga useDevotional() aos componentes de UI
+```
+
+### Fluxo de dados
+
+```
+DevotionalPage
+  │
+  ├─▶ useParams() lê :date da URL (undefined em "/hoje")
+  ├─▶ useDevotional(date) dispara o fetch (AbortController por mudança de data)
+  │     └─▶ api/client.ts → GET {API_BASE_URL}/api/devotional/today | /{date}
+  │
+  ├─ loading=true  → <LoadingState />
+  ├─ error         → <ErrorState /> (mensagem diferente para 404 vs. erro de rede)
+  └─ data          → <LiturgicalHeader /> + <SaintCard /> (se houver)
+                      + <ReadingsList /> + <HomilyCard /> (se houver)
+```
+
+A resolução da URL da API segue uma ordem de prioridade (ver
+`src/api/client.ts`): `window.__ORATORIUM_CONFIG__.apiBaseUrl` (injetado em
+runtime pelo container Docker) > `import.meta.env.VITE_API_BASE_URL`
+(definido em `.env.development`, usado só em dev local) > um valor padrão
+fixo. Ver [01-infraestrutura.md](01-infraestrutura.md#configuração-da-api-em-runtime-não-em-build-time)
+para o porquê dessa camada extra existir.
+
+### Rodando localmente (fora do Docker)
+
+```bash
+cd Oratorium
+npm install
+cp .env.example .env.development   # ajuste VITE_API_BASE_URL se necessário
+npm run dev                         # abre em http://localhost:5173
+
+# build de produção (gera dist/, valida TypeScript primeiro)
+npm run build
+npm run preview                     # serve o build de produção localmente
+
+# testes (precisa da API do Scriptorium rodando de verdade — não usa mocks)
+npm test
+```
+
+### Como o Oratorium foi testado sem navegador
+
+Este projeto foi desenvolvido num ambiente sandbox sem acesso a um
+navegador gráfico e sem permissão para instalar as bibliotecas de sistema
+que um Chromium headless (Playwright/Puppeteer) exige — uma tentativa real
+de rodar Playwright falhou com `error while loading shared libraries:
+libatk-1.0.so.0`, que exigiria `apt-get install` (sem sudo disponível).
+
+Em vez de pular a verificação, a validação foi feita com **Vitest +
+Testing Library**, a forma padrão do ecossistema React de testar
+componentes SEM precisar de um navegador de verdade: os componentes reais
+são renderizados num DOM simulado (`jsdom`) e o teste faz requisições HTTP
+**reais** (sem mocks) contra uma instância real do `Scriptorium.API`
+rodando com dados genuínos (raspados de verdade das fontes do backend).
+Isso está registrado permanentemente em `src/App.smoke.test.tsx` e cobre:
+
+- `/hoje` renderiza com dados reais (Santo do Dia, todas as leituras,
+  incluindo o texto completo).
+- Uma data fora da janela de 7 dias mostra a mensagem amigável de "ainda
+  não disponível" (erro 404 da API).
+- Um formato de data inválido mostra a mensagem de erro correspondente
+  (erro 400 da API).
+
+Adicionalmente, uma inspeção manual do HTML renderizado (via
+`container.textContent` e `outerHTML` num teste ad-hoc, depois descartado)
+confirmou que o texto acentuado em português veio íntegro e que as classes
+do Tailwind (cor litúrgica, tipografia serifada) foram aplicadas
+corretamente — por exemplo, o badge de cor litúrgica renderizou com
+`background-color: rgb(201, 168, 76)`, o tom dourado configurado em
+`lib/liturgicalColor.ts` para representar "Branco".
+
+**Limitação honesta**: isso valida a LÓGICA da aplicação (dados corretos
+chegando aos componentes certos, roteamento funcionando, tratamento de
+erro correto) e as classes CSS aplicadas, mas não é um substituto perfeito
+para ver o app renderizado visualmente num navegador real — questões
+puramente visuais (alinhamento, responsividade em telas pequenas,
+comportamento do Service Worker offline) devem ser conferidas manualmente
+no navegador antes do primeiro uso real do app.

@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#f4d78c" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#f4d78c" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4c1d3d" />
+      <stop offset="100%" stop-color="#2a0f28" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <circle cx="256" cy="215" r="150" fill="url(#glow)" />
+
+  <!-- Cruz minimalista, dourada -->
+  <g fill="#e9c46a">
+    <rect x="232" y="120" width="48" height="272" rx="10" />
+    <rect x="152" y="200" width="208" height="48" rx="10" />
+  </g>
+</svg>

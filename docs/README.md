@@ -10,9 +10,9 @@ código do zero.
 
 ```
 Abbatia/
-├── Scriptorium/        ← Backend em .NET 8 (este projeto — documentado aqui)
-├── Oratorium/           ← Frontend futuro (ainda vazio)
-├── docker-compose.yml   ← Orquestração dos containers, na raiz do monorepo
+├── Scriptorium/        ← Backend em .NET 8 (API + Worker)
+├── Oratorium/           ← Frontend: React + Vite, PWA
+├── docker-compose.yml   ← Orquestração dos 3 containers, na raiz do monorepo
 └── docs/                ← Você está aqui
 ```
 
@@ -21,8 +21,8 @@ Abbatia/
 | Documento | Conteúdo |
 |---|---|
 | [01-infraestrutura.md](01-infraestrutura.md) | Docker, docker-compose, CasaOS, volumes, limites de recursos, deploy |
-| [02-tecnologias.md](02-tecnologias.md) | Stack tecnológica completa: .NET, EF Core, HtmlAgilityPack, Swagger etc., com versões e justificativas |
-| [03-codigo.md](03-codigo.md) | Estrutura de pastas, camadas da arquitetura, entidades, endpoints, como rodar/depurar localmente |
+| [02-tecnologias.md](02-tecnologias.md) | Stack tecnológica completa (backend e frontend), com versões e justificativas |
+| [03-codigo.md](03-codigo.md) | Estrutura de pastas, camadas da arquitetura, entidades, endpoints, componentes, como rodar/depurar localmente |
 | [04-inteligencia-de-codigo.md](04-inteligencia-de-codigo.md) | O "porquê" por trás das decisões: padrões de projeto, engenharia reversa dos scrapers, bugs encontrados e corrigidos, limitações conhecidas |
 
 ## Visão geral em 60 segundos
@@ -32,10 +32,12 @@ dia de madrugada, um processo em background (`Scriptorium.Worker`) sai
 raspando 4 sites diferentes (Santo do Dia, Liturgia Diária, Homilias do
 Papa e Calendário Litúrgico), traduz o que precisar via uma IA local
 (LM Studio) e salva tudo num banco SQLite. Uma API separada
-(`Scriptorium.API`) só **lê** esse banco e expõe duas rotas HTTP simples
-para o futuro app **Oratorium** consumir. Os dois processos rodam em
-containers Docker separados, mas compartilham o mesmo arquivo SQLite via um
-volume Docker.
+(`Scriptorium.API`) só **lê** esse banco e expõe duas rotas HTTP simples.
+O **Oratorium** é a interface de leitura: um app React (PWA, instalável no
+celular) que consome essa API e exibe o devocional do dia, com navegação
+entre datas. Os três processos rodam em containers Docker separados; API e
+Worker compartilham o mesmo arquivo SQLite via um volume Docker, e o
+Oratorium fala com a API por HTTP comum através da rede local.
 
 ```
                     ┌─────────────────────────┐
@@ -51,8 +53,14 @@ volume Docker.
    LM Studio (IA local) ◀── traduz              ▲
                                                  │ lê
                     ┌─────────────────────────┐ │
-   app Oratorium ──▶│  Scriptorium.API         │─┘
-   (futuro)         │  (Minimal APIs/Swagger)  │
+   navegador ───────▶│  Oratorium               │
+   do usuário        │  (React + PWA, nginx)    │
+                    └───────────┬─────────────┘
+                                 │ HTTP (fetch)
+                                 ▼
+                    ┌─────────────────────────┐
+                    │  Scriptorium.API         │─┘
+                    │  (Minimal APIs/Swagger)  │
                     └─────────────────────────┘
 ```
 

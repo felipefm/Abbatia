@@ -376,3 +376,50 @@ preservado) — exatamente o comportamento exigido pelo requisito do projeto.
   camada `Application` e não depende do Worker).
 - Mecanismo de backup automatizado do SQLite (hoje é um procedimento
   manual — ver [01-infraestrutura.md](01-infraestrutura.md#backup-do-banco-de-dados)).
+
+---
+
+## 6. Decisões de projeto do Oratorium (Frontend)
+
+### Configuração de runtime aplicada PROATIVAMENTE, por causa do Bug #2
+
+O Oratorium (React/Vite) precisa saber o endereço da API do Scriptorium. O
+caminho "óbvio" do Vite seria uma variável `VITE_API_BASE_URL` resolvida em
+**build-time** — mas isso reproduziria exatamente a classe de problema do
+**Bug #2** (URL do LM Studio duplicada e fora de sincronia no
+`docker-compose.yml`, relatada pelo usuário): mudar o endereço da API
+exigiria reconstruir a imagem Docker inteira do frontend, e um valor
+"gravado" no bundle é fácil de esquecer que existe.
+
+Por isso o Oratorium foi desenhado, desde a primeira versão, com um padrão
+de configuração de RUNTIME: um arquivo `public/env-config.js`, carregado
+antes do bundle React, populado por um script de entrypoint do nginx a
+partir de uma variável de ambiente do container
+(`ORATORIUM_API_BASE_URL`). Ver o passo a passo completo em
+[01-infraestrutura.md](01-infraestrutura.md#configuração-da-api-em-runtime-não-em-build-time).
+Essa é uma aplicação direta da "Lição geral" registrada no Bug #2: em vez
+de esperar o mesmo tipo de bug se repetir no frontend, o padrão de "fonte
+única de configuração, editável sem rebuild" foi aplicado de propósito
+antes mesmo de existir um problema.
+
+### Testando um app React sem navegador disponível
+
+O ambiente onde este projeto foi desenvolvido não tinha um navegador
+gráfico nem permissão para instalar as bibliotecas de sistema exigidas por
+um Chromium headless (uma tentativa real com Playwright falhou por
+`libatk-1.0.so.0` ausente, que exigiria `apt-get install` — sem sudo
+disponível). Em vez de declarar a UI "não testável" e seguir em frente sem
+verificação, a solução foi usar a ferramenta padrão do próprio ecossistema
+React para esse cenário: **Vitest + Testing Library**, que renderiza
+componentes React reais num DOM simulado (`jsdom`) sem precisar de um
+motor de navegador de verdade.
+
+O detalhe importante: os testes em `src/App.smoke.test.tsx` fazem
+requisições HTTP **reais** contra uma instância genuína do
+`Scriptorium.API` (com dados reais, raspados de verdade das fontes do
+projeto) — não usam mocks. Isso significa que o teste valida a integração
+real entre frontend e backend (contratos de DTO batendo, tratamento de
+erro HTTP 400/404 correto), não apenas a lógica isolada dos componentes.
+Ver detalhamento completo, incluindo a limitação honesta sobre o que esse
+tipo de teste NÃO cobre (aspectos puramente visuais), em
+[03-codigo.md](03-codigo.md#como-o-oratorium-foi-testado-sem-navegador).

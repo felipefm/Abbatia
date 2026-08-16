@@ -5,20 +5,23 @@
 | Item | Valor |
 |---|---|
 | Host | CasaOS rodando em Debian 13 (trixie), homelab pessoal |
-| Orquestração | Docker Compose (2 serviços) |
+| Orquestração | Docker Compose (3 serviços) |
 | Banco de dados | SQLite (arquivo único, em volume Docker) |
 | IA de tradução | LM Studio, rodando em OUTRA máquina da rede local (pode estar desligada) |
 
 ## Topologia dos containers
 
-O `docker-compose.yml` (na raiz do monorepo) define **dois serviços**,
-construídos a partir do **mesmo `Dockerfile`** (multi-stage build, ver
-seção abaixo), cada um usando um `target` diferente:
+O `docker-compose.yml` (na raiz do monorepo) define **três serviços**. Os
+dois primeiros são construídos a partir do **mesmo `Dockerfile`**
+(`Scriptorium/Dockerfile`, multi-stage build, ver seção abaixo), cada um
+usando um `target` diferente; o terceiro (Oratorium) tem seu próprio
+Dockerfile:
 
 | Serviço | Imagem base final | Papel | Porta exposta |
 |---|---|---|---|
 | `scriptorium-api` | `aspnet:8.0` | Processo Kestrel; responde HTTP; **só lê** o SQLite | `8110:8080` (host:container) |
 | `scriptorium-worker` | `runtime:8.0` | `BackgroundService`; roda de madrugada; **escreve** no SQLite | nenhuma (não recebe tráfego HTTP) |
+| `oratorium` | `nginx:alpine` | Serve o frontend React (arquivos estáticos), consumido pelo navegador do usuário | `8111:80` (host:container) |
 
 Os dois containers compartilham o **mesmo arquivo SQLite** através de um
 volume Docker **nomeado** (`scriptorium-data`, montado em `/data` dentro de
@@ -72,6 +75,55 @@ Detalhes de segurança/performance embutidos no Dockerfile:
   diretório vazio da imagem, o Docker copia as permissões desse diretório
   para dentro do volume.
 
+## O Dockerfile do Oratorium
+
+Arquivo: `Oratorium/Dockerfile`. Também multi-stage, mas mais simples (só um
+resultado final, não dois):
+
+```
+FROM node:24-alpine AS build      ← npm ci + npm run build (gera dist/ estático)
+  │
+  └─▶ FROM nginx:alpine AS final  ← só copia dist/ + serve com nginx
+```
+
+Diferente da API/Worker (.NET), a imagem final NÃO tem nenhum runtime de
+aplicação — é literalmente arquivos HTML/CSS/JS estáticos servidos pelo
+nginx, o que a torna a imagem mais leve das três (a base `nginx:alpine`
+tem poucos MB).
+
+### Configuração da API em RUNTIME (não em build-time)
+
+Esse é o ponto mais importante do Dockerfile do Oratorium — e existe por
+causa de uma lição aprendida com o **Bug #2** documentado em
+[04-inteligencia-de-codigo.md](04-inteligencia-de-codigo.md#bug-2--url-do-lm-studio-duplicada-no-docker-composeyml):
+variáveis do Vite (`import.meta.env.VITE_*`) normalmente são resolvidas em
+**build-time** — o valor fica "gravado" dentro do JavaScript compilado.
+Isso significa que, se o endereço da API do Scriptorium mudasse (ex: o IP
+do CasaOS mudou), seria necessário **reconstruir a imagem inteira** do
+Oratorium só para atualizar essa única string — exatamente o tipo de
+fragilidade que já causou um bug real neste projeto.
+
+Para evitar isso, o Oratorium usa um padrão de **configuração injetada em
+runtime**:
+
+1. `public/env-config.js` é copiado para dentro da imagem em build-time com
+   um valor vazio/placeholder, e é carregado por `index.html` **antes** do
+   bundle principal do React (`<script src="/env-config.js">`).
+2. Um script de entrypoint do nginx
+   (`docker-entrypoint.d/40-oratorium-env.sh` — aproveitando um mecanismo
+   nativo da imagem oficial `nginx`, que executa automaticamente qualquer
+   script executável em `/docker-entrypoint.d/` antes do nginx subir)
+   **reescreve** esse arquivo toda vez que o CONTAINER inicia, usando o
+   valor da variável de ambiente `ORATORIUM_API_BASE_URL`.
+3. `src/api/client.ts` lê `window.__ORATORIUM_CONFIG__?.apiBaseUrl` (esse
+   valor de runtime) com prioridade sobre `import.meta.env.VITE_API_BASE_URL`
+   (o valor de build-time, usado só em desenvolvimento local).
+
+Resultado prático: trocar o IP da API no `docker-compose.yml` e rodar
+`docker compose up -d` (sem `--build`) já é suficiente — o container
+reinicia, o entrypoint gera um `env-config.js` novo, e o app passa a falar
+com o endereço atualizado. Nenhuma reconstrução de imagem necessária.
+
 ## `docker-compose.yml`
 
 Localização: raiz do monorepo (`/DATA/AppData/Abbatia/docker-compose.yml`).
@@ -85,6 +137,7 @@ Localização: raiz do monorepo (`/DATA/AppData/Abbatia/docker-compose.yml`).
 | `WorkerSchedule__HourUtc` | worker | Hora (UTC) em que a raspagem diária roda (padrão `6` = ~03h em Brasília) |
 | `WorkerSchedule__DaysAhead` | worker | Quantos dias à frente manter atualizados (padrão `7`) |
 | `WorkerSchedule__RunImmediatelyOnStartup` | worker | Se `true`, roda uma raspagem assim que o container sobe (não espera a próxima madrugada) |
+| `ORATORIUM_API_BASE_URL` | oratorium | Endereço LAN da API, usado pelo **navegador** do usuário final (não pela rede interna do Docker) — ver seção anterior sobre configuração em runtime |
 
 A notação `Chave__Subchave` (com **dois underscores**) é a convenção do
 ASP.NET Core para mapear variáveis de ambiente para a estrutura hierárquica
@@ -238,12 +291,16 @@ com `docker volume ls`).
 
 ## Limitações conhecidas desta configuração
 
-- O build da imagem Docker **não foi testado dentro do ambiente de
-  desenvolvimento sandbox** usado para gerar este projeto (o usuário do
-  sandbox não tinha permissão no grupo `docker` nem sudo sem senha). A
-  sintaxe do `docker-compose.yml` foi validada com `docker compose config`
-  e os caminhos do `Dockerfile` foram conferidos manualmente contra a
-  estrutura real de pastas — mas o primeiro `docker compose up -d --build`
-  de verdade deve ser feito e observado no CasaOS.
+- O build das imagens Docker (Scriptorium e Oratorium) **não foi testado
+  dentro do ambiente de desenvolvimento sandbox** usado para gerar este
+  projeto (o usuário do sandbox não tinha permissão no grupo `docker` nem
+  sudo sem senha). A sintaxe do `docker-compose.yml` foi validada com
+  `docker compose config` e os caminhos de cada `Dockerfile` foram
+  conferidos manualmente contra a estrutura real de pastas — mas o
+  primeiro `docker compose up -d --build` de verdade deve ser feito e
+  observado no CasaOS. O Oratorium, em compensação, teve sua LÓGICA DE
+  APLICAÇÃO (componentes React, chamadas à API, roteamento) validada de
+  ponta a ponta contra o Scriptorium.API real, fora do Docker — ver
+  [03-codigo.md](03-codigo.md#como-o-oratorium-foi-testado-sem-navegador).
 - Não há, hoje, nenhum mecanismo automatizado de backup do SQLite — é uma
   tarefa manual (ver seção acima) ou a implementar futuramente.
