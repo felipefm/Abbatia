@@ -1,6 +1,7 @@
 using System.Globalization;
 using Scriptorium.API.DTOs;
 using Scriptorium.Application.Interfaces;
+using Scriptorium.Domain;
 
 namespace Scriptorium.API.Endpoints;
 
@@ -45,7 +46,7 @@ public static class DevotionalEndpoints
         // deixar isso explícito pela ORDEM de declaração.
         group.MapGet("/today", GetTodayAsync)
             .WithName("GetTodayDevotional")
-            .WithSummary("Devolve o devocional do dia atual (UTC).")
+            .WithSummary("Devolve o devocional do dia atual (hora de Brasília).")
             .Produces<DevotionalResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
@@ -64,7 +65,7 @@ public static class DevotionalEndpoints
         IDevotionalRepository repository,
         CancellationToken cancellationToken)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = LiturgicalClock.Today();
         return await FetchAndRespondAsync(repository, today, cancellationToken);
     }
 

@@ -413,6 +413,49 @@ aparecem em nenhum log da API, só no DevTools do navegador de quem está
 acessando. Isso reforça o valor de pedir print da aba Rede/Console
 sempre que um frontend "não mostra nada" sem mensagem de erro clara.
 
+### Bug #7 — "Hoje" virava amanhã 3 horas antes da meia-noite (UTC vs. Brasília)
+
+**Sintoma observado**: o usuário reportou, às 22h40 de um domingo (hora de
+Brasília), que o app já mostrava o devocional de **segunda-feira**.
+
+**Causa raiz**: tanto `GET /api/devotional/today` quanto o cálculo de
+"quais dias processar" no `DailyDevotionalWorker` usavam
+`DateOnly.FromDateTime(DateTime.UtcNow)` para decidir qual é "o dia de
+hoje". Containers Docker rodam em UTC por padrão, e Brasília está 3 horas
+ATRÁS do UTC — então, a partir das 21h em Brasília, o relógio UTC do
+container já virou a data seguinte. Confirmado ao vivo neste ambiente: às
+22h41 de 16/08 (domingo) em Brasília, `DateTime.UtcNow` já marcava
+17/08 (segunda) 01h41.
+
+**Correção**: criado `Scriptorium.Domain.LiturgicalClock`, uma classe
+estática com um único método `Today()` que converte
+`DateTime.UtcNow` para o fuso `America/Sao_Paulo` (via
+`TimeZoneInfo.FindSystemTimeZoneById` + `ConvertTimeFromUtc`) antes de
+extrair o `DateOnly`. Os dois pontos que decidiam "hoje" (endpoint
+`/today` na API e o laço de processamento do Worker) passaram a chamar
+esse método único, em vez de repetir a lógica — evitando, de novo, a
+classe de bug de "dois lugares que deveriam concordar mas não são a mesma
+fonte" (Bug #2, #5). Timestamps de auditoria (`UpdatedAtUtc`) e o
+agendamento do Worker (`WorkerSchedule__HourUtc`) permanecem em UTC de
+propósito — só "que dia é hoje para o usuário" precisa do fuso local,
+tudo o mais (logs, ordenação, agendamento de tarefa) continua correto e
+mais simples em UTC.
+
+**Por que `TimeZoneInfo` explícito em vez de configurar o fuso do SO do
+container**: depender da variável `TZ`/configuração do sistema operacional
+do container criaria mais um valor de configuração para manter
+sincronizado entre API, Worker e qualquer ambiente futuro — e falharia
+silenciosamente (voltando para UTC) se alguém esquecesse de definir a
+variável em um dos dois serviços. Resolver o fuso explicitamente uma
+única vez, em código, é uma fonte única de verdade que não depende de
+nenhuma configuração externa.
+
+**Como foi encontrado**: relato direto do usuário testando o app em
+produção no horário exato em que o bug se manifesta (perto das 21h de
+Brasília) — o tipo de bug de fuso horário que só aparece em uma janela
+específica de 3 horas por dia, fácil de não perceber testando em outros
+horários.
+
 ---
 
 ## 4. Limitações conhecidas e assumidas conscientemente

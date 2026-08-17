@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Scriptorium.Application.Interfaces;
 using Scriptorium.Application.Services;
+using Scriptorium.Domain;
 using Scriptorium.Domain.Enums;
 using Scriptorium.Infrastructure.Data;
 using Scriptorium.Worker.Options;
@@ -142,7 +143,12 @@ public class DailyDevotionalWorker(
 
         logger.LogInformation("Iniciando rodada de raspagem para os próximos {Dias} dia(s).", schedule.DaysAhead);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // Usa o fuso de Brasília (não UTC puro) para decidir qual é "o dia
+        // de hoje" — ver Scriptorium.Domain.LiturgicalClock para o porquê
+        // (o container roda em UTC, e Brasília está 3h atrás; sem isso, a
+        // janela de "próximos N dias" processada aqui ficaria adiantada em
+        // relação ao calendário real do usuário).
+        var today = LiturgicalClock.Today();
 
         for (var i = 0; i < schedule.DaysAhead; i++)
         {
