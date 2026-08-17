@@ -68,8 +68,15 @@ public class CancaoNovaSaintScraper(
         // compartilhar (Facebook, WhatsApp, etc) que PRECISA ser removido
         // antes de extrairmos os parágrafos, senão o texto dos botões de
         // compartilhamento entraria misturado com a biografia.
+        //
+        // Usamos ExtractParagraphsAndListItems (não ExtractParagraphs) porque
+        // este site coloca duas seções importantes em listas <ul>/<li> em vez
+        // de parágrafos: "Outros santos e beatos celebrados em [data]" e
+        // "Fontes" (bibliografia). ExtractParagraphs (só <p>) as ignorava
+        // silenciosamente — bug real reportado pelo usuário, ver Bug #8 em
+        // docs/04-inteligencia-de-codigo.md.
         var contentNode = document.DocumentNode.SelectSingleNode("//div[contains(@class,'content-santo')]");
-        var biography = HtmlTextExtractor.ExtractParagraphs(contentNode, ".//ul[@id='share-buttons']");
+        var biography = HtmlTextExtractor.ExtractParagraphsAndListItems(contentNode, ".//ul[@id='share-buttons']");
 
         var imageNode = contentNode?.SelectSingleNode(".//img");
         var imageUrl = imageNode?.GetAttributeValue("src", string.Empty);

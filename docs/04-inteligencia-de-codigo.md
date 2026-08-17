@@ -456,6 +456,50 @@ Brasília) — o tipo de bug de fuso horário que só aparece em uma janela
 específica de 3 horas por dia, fácil de não perceber testando em outros
 horários.
 
+### Bug #8 — Listas (`<ul>`/`<li>`) da biografia do santo eram ignoradas silenciosamente
+
+**Sintoma observado**: o usuário colou o texto completo da página real de
+Santo Estêvão da Hungria (santo.cancaonova.com) e apontou que várias
+seções não apareciam no Oratorium — entre elas a lista "Outros santos e
+beatos celebrados em 16 de agosto" (18 nomes) e a lista de "Fontes"
+(bibliografia).
+
+**Causa raiz**: `HtmlTextExtractor.ExtractParagraphs` (usado pelo
+`CancaoNovaSaintScraper`) só selecionava nós `<p>` via XPath (`.//p`). No
+HTML real do site, os títulos de cada seção ("Origens", "Vida",
+"Exemplo de Caridade" etc.) estão dentro de `<p><b>...</b></p>` — por
+isso ESSES apareciam normalmente —, mas as duas últimas seções da página
+(a lista de outros santos do dia e a bibliografia) são estruturadas como
+`<ul><li>...</li></ul>`, não parágrafos. Como o XPath nunca pedia
+elementos `<li>`, esse conteúdo era descartado sem nenhum aviso/erro — o
+scraper "funcionava" normalmente (sem exceção, sem log de falha), só que
+devolvia menos texto do que a página realmente tinha.
+
+**Correção**: adicionado `HtmlTextExtractor.ExtractParagraphsAndListItems`,
+que estende a mesma lógica para também selecionar `.//li` (via XPath de
+união `.//p | .//li`, que preserva a ORDEM do documento original — o
+cabeçalho "Outros santos..." continua vindo antes da lista que o segue).
+Cada item de lista é prefixado com "• " no texto puro salvo no banco, para
+o item continuar reconhecível como lista mesmo sem HTML. Optou-se por um
+método NOVO em vez de mudar o comportamento de `ExtractParagraphs`
+existente: os outros dois usos desse utilitário (leituras litúrgicas e
+homilias do Papa) nunca precisaram de listas, e mudar o padrão ali sem
+necessidade arriscaria puxar ruído inesperado (menus, links relacionados)
+para dentro de conteúdo já testado e funcionando em produção — só
+`CancaoNovaSaintScraper` foi migrado para o novo método.
+
+**Validação**: rodado contra o HTML real da página (baixado ao vivo do
+site durante a investigação) usando a mesma versão do HtmlAgilityPack
+usada em produção — confirmado que as 18 entradas de "Outros santos" e as
+4 entradas de "Fontes" passam a ser extraídas, na ordem correta, com o
+prefixo "• ".
+
+**Como foi encontrado**: o usuário colou o conteúdo completo da página
+real ao lado do que o app mostrava, tornando a comparação trivial. Sem
+esse tipo de evidência lado a lado, um "scraper que às vezes captura
+menos texto que o esperado" é difícil de notar — não há exceção, não há
+log de erro, o resultado só é silenciosamente incompleto.
+
 ---
 
 ## 4. Limitações conhecidas e assumidas conscientemente
