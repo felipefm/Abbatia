@@ -5,9 +5,18 @@ import type { DevotionalResponse } from '../api/types'
 interface UseDevotionalResult {
   data: DevotionalResponse | null
   loading: boolean
+  /** true quando o carregamento já passa de alguns segundos — sinal de que a
+   * API provavelmente está buscando essa data ao vivo pela primeira vez
+   * (cache-miss), não um carregamento normal do banco. */
+  slow: boolean
   error: ApiError | Error | null
   retry: () => void
 }
+
+/** Depois desse tempo sem resposta, assumimos que pode ser um cache-miss
+ * (busca sob demanda no Scriptorium.API) e trocamos a mensagem de
+ * carregamento para não parecer que o app travou. */
+const SLOW_LOADING_THRESHOLD_MS = 4000
 
 /**
  * Busca o devocional de uma data específica, ou de hoje quando `date` é
@@ -18,6 +27,7 @@ interface UseDevotionalResult {
 export function useDevotional(date: string | undefined): UseDevotionalResult {
   const [data, setData] = useState<DevotionalResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [slow, setSlow] = useState(false)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [retryToken, setRetryToken] = useState(0)
 
@@ -27,7 +37,10 @@ export function useDevotional(date: string | undefined): UseDevotionalResult {
     const controller = new AbortController()
 
     setLoading(true)
+    setSlow(false)
     setError(null)
+
+    const slowTimer = window.setTimeout(() => setSlow(true), SLOW_LOADING_THRESHOLD_MS)
 
     const fetchPromise = date
       ? getDevotionalByDate(date, controller.signal)
@@ -44,9 +57,13 @@ export function useDevotional(date: string | undefined): UseDevotionalResult {
         setData(null)
         setLoading(false)
       })
+      .finally(() => window.clearTimeout(slowTimer))
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      window.clearTimeout(slowTimer)
+    }
   }, [date, retryToken])
 
-  return { data, loading, error, retry }
+  return { data, loading, slow, error, retry }
 }

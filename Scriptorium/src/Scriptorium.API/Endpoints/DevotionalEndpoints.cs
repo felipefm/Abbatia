@@ -1,6 +1,8 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Scriptorium.API.DTOs;
 using Scriptorium.Application.Interfaces;
+using Scriptorium.Application.Services;
 using Scriptorium.Domain;
 
 namespace Scriptorium.API.Endpoints;
@@ -20,14 +22,24 @@ namespace Scriptorium.API.Endpoints;
 /// mas aqui, com o escopo enxuto do projeto, Minimal APIs são a escolha
 /// mais simples e igualmente robusta.
 ///
-/// PORQUÊ ESSA API SÓ LÊ DO BANCO (NUNCA FAZ SCRAPING NA HORA)?
-/// Fazer o usuário do app esperar 3-4 requisições HTTP para sites externos
-/// (que podem estar lentos ou fora do ar) toda vez que ele abre a tela do
-/// devocional seria uma péssima experiência e um ponto de falha
-/// desnecessário. A API é DELIBERADAMENTE burra e rápida: ela só lê o que o
-/// Worker já deixou pronto no SQLite de madrugada. Essa separação entre
-/// "quem escreve" (Worker) e "quem lê" (API) é uma aplicação simplificada
-/// do padrão CQRS (Command Query Responsibility Segregation).
+/// SOBRE A API "SÓ LER DO BANCO" — E O CACHE-MISS SOB DEMANDA:
+/// O CAMINHO NORMAL continua sendo ler o que o Worker já deixou pronto no
+/// SQLite de madrugada (rápido, sem esperar sites externos) — essa
+/// separação entre "quem escreve" (Worker) e "quem lê" (API) é uma
+/// aplicação simplificada do padrão CQRS (Command Query Responsibility
+/// Segregation). MAS, quando o usuário navega para uma data que o Worker
+/// ainda não processou (fora da janela padrão de 7 dias, ou o Worker caiu
+/// naquele dia), em vez de simplesmente devolver 404, a API tenta montar o
+/// devocional NA HORA, chamando o mesmo <see cref="DevotionalBuilderService"/>
+/// que o Worker usa — e SALVA o resultado, para que a próxima consulta
+/// àquela data (deste ou de qualquer outro dispositivo) seja instantânea.
+/// Isso é uma pequena flexibilização deliberada do CQRS "puro" (um caso de
+/// "cache-miss sob demanda"): o ganho de poder navegar livremente pelo
+/// calendário compensa a API deixar de ser 100% burra/rápida NESSE caso
+/// específico (que só acontece uma vez por data — depois fica em cache no
+/// banco para sempre). Ver
+/// docs/04-inteligencia-de-codigo.md, seção "Navegação livre por
+/// calendário e busca sob demanda", para o raciocínio completo.
 /// </summary>
 public static class DevotionalEndpoints
 {
@@ -63,15 +75,19 @@ public static class DevotionalEndpoints
 
     private static async Task<IResult> GetTodayAsync(
         IDevotionalRepository repository,
+        DevotionalBuilderService builder,
+        ILogger<DevotionalBuilderService> logger,
         CancellationToken cancellationToken)
     {
         var today = LiturgicalClock.Today();
-        return await FetchAndRespondAsync(repository, today, cancellationToken);
+        return await FetchAndRespondAsync(repository, builder, logger, today, cancellationToken);
     }
 
     private static async Task<IResult> GetByDateAsync(
         string date,
         IDevotionalRepository repository,
+        DevotionalBuilderService builder,
+        ILogger<DevotionalBuilderService> logger,
         CancellationToken cancellationToken)
     {
         // Fazemos o parsing MANUALMENTE com TryParseExact (em vez de deixar
@@ -97,17 +113,27 @@ public static class DevotionalEndpoints
             });
         }
 
-        return await FetchAndRespondAsync(repository, parsedDate, cancellationToken);
+        return await FetchAndRespondAsync(repository, builder, logger, parsedDate, cancellationToken);
     }
+
+    // Limites de sanidade para o scraping sob demanda: nenhuma das 4 fontes
+    // publica calendário litúrgico fora desta janela, então nem vale a pena
+    // tentar (evita, por exemplo, alguém digitando "9999-01-01" na URL e a
+    // API ficar tentando raspar 4 sites à toa por uma data que nunca vai
+    // existir).
+    private static readonly DateOnly MinScrapableDate = new(2000, 1, 1);
 
     /// <summary>
     /// Lógica compartilhada pelos dois endpoints: busca no repositório e
-    /// converte o resultado em 200 OK + DTO, ou 404 Not Found quando o
-    /// Worker ainda não processou aquele dia (ex: uma data muito no futuro,
-    /// além da janela de 7 dias que o Worker mantém atualizada).
+    /// converte o resultado em 200 OK + DTO. Se a data não estiver no banco
+    /// (cache-miss — ver comentário na classe), tenta montar o devocional
+    /// NA HORA via <see cref="DevotionalBuilderService"/> (o mesmo
+    /// orquenstrador usado pelo Worker) antes de desistir com 404.
     /// </summary>
     private static async Task<IResult> FetchAndRespondAsync(
         IDevotionalRepository repository,
+        DevotionalBuilderService builder,
+        ILogger<DevotionalBuilderService> logger,
         DateOnly date,
         CancellationToken cancellationToken)
     {
@@ -115,12 +141,50 @@ public static class DevotionalEndpoints
 
         if (devotional is null)
         {
-            return Results.NotFound(new
+            var maxScrapableDate = LiturgicalClock.Today().AddYears(5);
+
+            if (date < MinScrapableDate || date > maxScrapableDate)
             {
-                erro = $"Nenhum devocional encontrado para {date:yyyy-MM-dd}. " +
-                       "O Worker processa os próximos 7 dias a partir de hoje; " +
-                       "datas fora dessa janela (ou muito no passado) podem não estar disponíveis.",
-            });
+                return Results.NotFound(new
+                {
+                    erro = $"Nenhum devocional encontrado para {date:yyyy-MM-dd}, e essa data está fora do " +
+                           $"intervalo suportado para busca ao vivo ({MinScrapableDate:yyyy-MM-dd} a {maxScrapableDate:yyyy-MM-dd}).",
+                });
+            }
+
+            // CACHE-MISS: essa data ainda não foi processada pelo Worker.
+            // Tenta montar na hora, ao vivo, chamando os mesmos 4 scrapers +
+            // tradução que o Worker usaria de madrugada. Pode demorar (cada
+            // scraper tem até 30s de timeout, e a tradução via LM Studio até
+            // 120s se a IA estiver ligada mas lenta) — mas o resultado fica
+            // salvo, então só a PRIMEIRA consulta a essa data é lenta.
+            logger.LogInformation(
+                "Devocional de {Data:yyyy-MM-dd} não encontrado no banco; tentando montar sob demanda.",
+                date);
+
+            devotional = await builder.BuildAsync(date, cancellationToken);
+
+            // Só vale a pena salvar/devolver se REALMENTE achamos alguma
+            // coisa em pelo menos uma das 4 fontes — caso contrário
+            // salvaríamos um registro "vazio" (só com o título de fallback
+            // "Feria do dia ..." que DevotionalBuilderService sempre gera)
+            // que poluiria o banco sem nenhuma informação real.
+            var encontrouAlgumaCoisa = devotional.Saint is not null
+                || devotional.Readings.Count > 0
+                || devotional.Homily is not null;
+
+            if (!encontrouAlgumaCoisa)
+            {
+                logger.LogWarning("Busca sob demanda de {Data:yyyy-MM-dd} não encontrou nada em nenhuma fonte.", date);
+                return Results.NotFound(new
+                {
+                    erro = $"Não encontramos informações para {date:yyyy-MM-dd} em nenhuma das fontes, " +
+                           "mesmo tentando buscar ao vivo agora. Essa data pode estar fora do que os sites publicam.",
+                });
+            }
+
+            await repository.UpsertAsync(devotional, cancellationToken);
+            logger.LogInformation("Devocional de {Data:yyyy-MM-dd} montado e salvo sob demanda com sucesso.", date);
         }
 
         return Results.Ok(DevotionalResponse.FromEntity(devotional));

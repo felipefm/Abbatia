@@ -21,7 +21,8 @@ export function ReadingsList({ readings }: { readings: ReadingResponse[] }) {
 
           <Paragraphs
             text={reading.text}
-            className="mt-3 font-serif-reading text-[17px] leading-relaxed text-neutral-700 dark:text-neutral-300"
+            highlightVerseNumbers
+            className="mt-4 font-serif-reading text-[18px] leading-[1.8] text-neutral-700 dark:text-neutral-300"
           />
         </article>
       ))}

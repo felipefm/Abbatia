@@ -12,7 +12,7 @@ import { isValidIsoDate, todayISO } from '../lib/date'
  * rota indefinido, pede a data atual à API) quanto por "/dia/:date". */
 export function DevotionalPage() {
   const { date } = useParams<{ date?: string }>()
-  const { data, loading, error, retry } = useDevotional(date)
+  const { data, loading, slow, error, retry } = useDevotional(date)
 
   const displayDate = data?.date ?? (date && isValidIsoDate(date) ? date : todayISO())
 
@@ -20,7 +20,7 @@ export function DevotionalPage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
       <DateNav currentDate={displayDate} />
 
-      {loading && <LoadingState />}
+      {loading && <LoadingState slow={slow} />}
       {error && !loading && <ErrorState error={error} onRetry={retry} />}
 
       {data && !loading && !error && (

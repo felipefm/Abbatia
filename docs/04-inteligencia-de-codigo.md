@@ -57,15 +57,26 @@ recorrentes** neste projeto — não são "o inesperado" que uma exceção
 deveria representar. Usar exceções para fluxo de controle esperado é
 custoso em performance e torna o código de chamada mais difícil de ler.
 
-### CQRS simplificado (separação Worker escreve / API lê)
+### CQRS simplificado (separação Worker escreve / API lê) + cache-miss sob demanda
 
-A API nunca faz scraping nem chama a IA de tradução — só lê o SQLite
-(rápido, sem depender da disponibilidade de sites externos). O Worker é o
-único processo que escreve. Essa separação de responsabilidades é uma
-aplicação enxuta do padrão CQRS (Command Query Responsibility
-Segregation), sem a complexidade de um CQRS "de livro-texto" (sem barramento
-de comandos, sem event sourcing) — só a divisão de papéis, que já resolve
-o problema real do projeto.
+No CAMINHO NORMAL, a API nunca faz scraping nem chama a IA de tradução —
+só lê o SQLite (rápido, sem depender da disponibilidade de sites
+externos). O Worker é o único processo que escreve de forma agendada.
+Essa separação de responsabilidades é uma aplicação enxuta do padrão CQRS
+(Command Query Responsibility Segregation), sem a complexidade de um CQRS
+"de livro-texto" (sem barramento de comandos, sem event sourcing) — só a
+divisão de papéis, que já resolve o problema real do projeto.
+
+Desde a navegação livre por calendário no Oratorium (ver seção "Navegação
+livre por calendário e busca sob demanda", abaixo), essa regra ganhou UMA
+exceção deliberada: se a API recebe um pedido para uma data que não está
+no banco, ela tenta montar o devocional na hora (reusando
+`DevotionalBuilderService`, o mesmo orquestrador do Worker) e salva o
+resultado, em vez de simplesmente devolver 404. Continua sendo "CQRS
+simplificado" no dia a dia (99% das leituras batem no cache que o Worker
+já preparou), só que agora com um mecanismo de "preencher o cache sob
+demanda" para o 1% de vezes em que o usuário pede algo fora da janela
+que o Worker mantém quente.
 
 ### Injeção de Dependência via `IServiceScopeFactory` no Worker
 
@@ -523,11 +534,16 @@ log de erro, o resultado só é silenciosamente incompleto.
   leitura (funções puras, fáceis de testar) e testes de integração contra
   fixtures de HTML salvas localmente (evitando dependência de rede nos
   testes).
-- Endpoint administrativo na API para forçar o reprocessamento manual de um
-  dia específico (reaproveitando `DevotionalBuilderService`, que já vive na
-  camada `Application` e não depende do Worker).
 - Mecanismo de backup automatizado do SQLite (hoje é um procedimento
   manual — ver [01-infraestrutura.md](01-infraestrutura.md#backup-do-banco-de-dados)).
+- Um mecanismo de LOCK por data para a busca sob demanda (ver seção
+  "Navegação livre por calendário e busca sob demanda" abaixo) — hoje, se
+  duas requisições pedirem a MESMA data ainda não cacheada ao mesmo tempo
+  (ex: duplo clique), as duas disparam uma raspagem completa em paralelo.
+  Não implementado de propósito: é um app de um usuário só, a chance real
+  de colisão é baixíssima, e mesmo colidindo o pior caso é só trabalho
+  duplicado (não corrompe dado nenhum — `UpsertAsync` lida bem com a
+  segunda gravação chegando depois da primeira).
 
 ---
 
@@ -575,3 +591,101 @@ erro HTTP 400/404 correto), não apenas a lógica isolada dos componentes.
 Ver detalhamento completo, incluindo a limitação honesta sobre o que esse
 tipo de teste NÃO cobre (aspectos puramente visuais), em
 [03-codigo.md](03-codigo.md#como-o-oratorium-foi-testado-sem-navegador).
+
+---
+
+## 7. Navegação livre por calendário e busca sob demanda
+
+Pedido do usuário: poder abrir QUALQUER data pelo Oratorium (não só os 7
+dias que o Worker mantém atualizados), com um seletor de calendário no
+topo da página — e, se a data escolhida ainda não estiver no banco, o
+sistema deveria tentar buscá-la ao vivo em vez de simplesmente dizer "não
+encontrado".
+
+### Frontend: `<input type="date">` nativo, sem biblioteca extra
+
+`DateNav.tsx` ganhou um `<input type="date">` entre os botões "Anterior"/
+"Próximo". Foi uma escolha deliberada NÃO usar uma biblioteca de
+calendário (ex: react-datepicker): o navegador já desenha um seletor de
+mês/ano completo de graça, inclusive otimizado para toque no celular (onde
+o PWA roda de verdade) — adicionar uma dependência só duplicaria algo que
+a plataforma já oferece. O único ajuste necessário foi
+`dark:[color-scheme:dark]`, para o POPUP nativo do calendário (não só a
+caixa de texto) respeitar o tema escuro do app — sem isso, o popup do
+seletor de data aparece sempre no estilo claro do sistema operacional,
+independente do tema escolhido no Oratorium.
+
+### Backend: cache-miss vira busca ao vivo, não um 404 imediato
+
+`DevotionalEndpoints.FetchAndRespondAsync` (ver também a nota sobre CQRS
+na seção 1) agora, ao não achar a data no banco:
+
+1. Confere se a data está dentro de um intervalo de sanidade
+   (`2000-01-01` até 5 anos no futuro a partir de hoje) — fora disso,
+   devolve 404 IMEDIATO, sem tentar raspar nada (nenhuma das 4 fontes
+   publica calendário litúrgico fora dessa janela; tentar seria
+   desperdício de tempo e de requisições aos sites externos).
+2. Dentro do intervalo, chama `DevotionalBuilderService.BuildAsync` — o
+   MESMO orquestrador que o Worker usa de madrugada, já preparado para
+   isso desde o início (ver comentário original na classe: "permite,
+   por exemplo, expor essa mesma lógica futuramente por um endpoint HTTP
+   manual... sem duplicar nada").
+3. Se pelo menos UMA das 4 fontes trouxe algo (santo, leitura ou
+   homilia), salva no banco (`UpsertAsync`) e devolve 200 — a partir daí,
+   qualquer consulta futura a essa mesma data (de qualquer dispositivo)
+   vem do cache, instantânea.
+4. Se as 4 fontes vierem vazias mesmo assim, devolve 404 (a data existe
+   dentro do intervalo suportado, mas nenhuma fonte tinha conteúdo real
+   para ela).
+
+**Por que isso é seguro dentro dos timeouts já existentes**: cada um dos 4
+scrapers já tem seu próprio timeout de 30s (rodam em paralelo via
+`Task.WhenAll`, então o pior caso é ~30s, não 4×30s), e a tradução via LM
+Studio tem seu próprio timeout de 120s configurável — E, mais importante,
+**nenhum desses timeouts propaga uma exceção não tratada**: cada scraper é
+isolado por `SafeScrapeAsync` (falha de um não derruba os outros) e o
+serviço de tradução já captura sua própria `TaskCanceledException`
+internamente (ver Bug #3), sempre devolvendo um resultado válido
+(`Success=false` + texto original preservado) em vez de propagar o erro.
+Ou seja: o endpoint sob demanda reaproveita 100% do tratamento de erro que
+já existia para o Worker — não precisou de nenhum try/catch novo na API
+para ficar seguro contra timeout/site fora do ar.
+
+**Validado ao vivo** (não só lido no código): rodei a API localmente e
+pedi uma data bem no futuro, fora da janela do Worker — a primeira
+consulta levou ~4s e trouxe uma biografia real de uma santa raspada na
+hora (Santa Beatriz da Silva); a segunda consulta à mesma data, já em
+cache, levou ~90ms. Também confirmei que uma data de 1899 (fora do
+intervalo suportado) retorna 404 imediatamente, sem tentar raspar nada.
+
+### Frontend: UX para uma busca que pode demorar
+
+Como a PRIMEIRA consulta a uma data nova pode levar de alguns segundos a
+cerca de um minuto (scraping + tradução), `useDevotional` passou a expor
+uma flag `slow` (fica `true` se o carregamento passar de 4s) — o
+`LoadingState` troca a mensagem genérica "Carregando…" por uma explicando
+que a API pode estar buscando aquele dia ao vivo pela primeira vez, para
+o app não parecer travado numa espera mais longa que o normal. A mensagem
+de "não encontrado" (404) também foi atualizada para deixar claro que a
+busca ao vivo JÁ foi tentada (não é mais "ainda não publicado, tente mais
+tarde" — agora significa "nem ao vivo achamos nada").
+
+### Tipografia das leituras: mais próxima da fonte original
+
+O usuário comparou a leitura do Oratorium com a formatação do site-fonte
+(liturgia.cancaonova.com) e pediu para melhorar a legibilidade. Duas
+mudanças em `ReadingsList`/`SaintCard`/`HomilyCard`:
+
+- Fonte um pouco maior e mais espaçada (`text-[17px] leading-relaxed` →
+  `text-[18px] leading-[1.8]`), mais perto do conforto de leitura do
+  site-fonte.
+- Números de versículo destacados em negrito dentro do texto corrido
+  (ex: "Naqueles dias, **39** Maria partiu…"), como o site original já
+  faz visualmente. Como o backend guarda só TEXTO PURO (sem a formatação
+  HTML original — ver `HtmlTextExtractor`), essa formatação não existe
+  mais no dado por si só; foi recriada no frontend com uma heurística em
+  `Paragraphs.tsx`: qualquer número de 1 a 3 dígitos isolado por espaços
+  vira `<strong>`. Aplicado SÓ nas leituras (`highlightVerseNumbers`
+  passado explicitamente), não na biografia do santo nem na homilia —
+  nesses dois, um número solto raramente é um versículo, e o risco de
+  negritar algo errado (uma data, uma idade) não vale a pena.

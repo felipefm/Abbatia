@@ -361,10 +361,18 @@ Isso está registrado permanentemente em `src/App.smoke.test.tsx` e cobre:
 
 - `/hoje` renderiza com dados reais (Santo do Dia, todas as leituras,
   incluindo o texto completo).
-- Uma data fora da janela de 7 dias mostra a mensagem amigável de "ainda
-  não disponível" (erro 404 da API).
+- Uma data fora do intervalo suportado pela busca sob demanda (2000-01-01
+  a 5 anos no futuro) mostra a mensagem amigável de "não encontrado" (erro
+  404 da API, sem tentar raspar nada).
 - Um formato de data inválido mostra a mensagem de erro correspondente
   (erro 400 da API).
+- Uma data DENTRO do intervalo suportado mas fora do cache dispara a busca
+  sob demanda de verdade (chamada real aos 4 scrapers) e ainda assim
+  devolve o devocional completo — ver
+  [04-inteligencia-de-codigo.md](04-inteligencia-de-codigo.md), seção 7,
+  "Navegação livre por calendário e busca sob demanda". Esse teste usa um
+  timeout maior (`testTimeout` de 30s no `vitest.config.ts`, e 50s neste
+  teste específico) porque a chamada realmente sai para a internet.
 
 Adicionalmente, uma inspeção manual do HTML renderizado (via
 `container.textContent` e `outerHTML` num teste ad-hoc, depois descartado)

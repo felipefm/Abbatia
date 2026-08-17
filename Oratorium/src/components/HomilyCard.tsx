@@ -17,7 +17,7 @@ export function HomilyCard({ homily }: { homily: HomilyResponse }) {
 
       <Paragraphs
         text={homily.displayText}
-        className="mt-4 font-serif-reading text-[17px] leading-relaxed text-neutral-700 dark:text-neutral-300"
+        className="mt-4 font-serif-reading text-[18px] leading-[1.8] text-neutral-700 dark:text-neutral-300"
       />
 
       <a

@@ -1,10 +1,14 @@
 import { ApiError } from '../api/client'
 
-export function LoadingState() {
+export function LoadingState({ slow = false }: { slow?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-2xl border border-black/5 bg-white p-10 text-center dark:border-white/10 dark:bg-neutral-900">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">Carregando o devocional…</p>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+        {slow
+          ? 'Ainda buscando… se for a primeira vez que alguém abre este dia, a API está raspando as fontes ao vivo agora — pode levar até um minuto.'
+          : 'Carregando o devocional…'}
+      </p>
     </div>
   )
 }
@@ -17,7 +21,7 @@ export function ErrorState({ error, onRetry }: { error: Error; onRetry: () => vo
       <p className="text-3xl">{isNotFound ? '📖' : '⚠️'}</p>
       <p className="max-w-sm text-sm text-neutral-600 dark:text-neutral-300">
         {isNotFound
-          ? 'O devocional para esta data ainda não está disponível. Ele é publicado com alguns dias de antecedência — tente uma data mais próxima de hoje.'
+          ? 'Não encontramos informações para esta data — mesmo tentando buscar ao vivo nas fontes agora. Tente uma data mais próxima de hoje.'
           : error.message || 'Não foi possível conectar à API do Scriptorium. Verifique se o backend está no ar.'}
       </p>
       {!isNotFound && (
