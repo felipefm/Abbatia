@@ -15,6 +15,7 @@
 | `Microsoft.Extensions.Hosting` (Generic Host + `BackgroundService`) | 8.0.1 | `Scriptorium.Worker` | Infraestrutura de processo de longa duração com DI, configuração e logging prontos, sem o pipeline HTTP (que não faz sentido para um worker) |
 | `Microsoft.Extensions.Logging.Abstractions` | 8.0.2 | `Scriptorium.Application` | Permite `DevotionalBuilderService` receber `ILogger<T>` via DI sem a camada Application depender de nenhuma implementação concreta de logging |
 | Swashbuckle.AspNetCore (Swagger) | 6.9.0 | `Scriptorium.API` | Gera a especificação OpenAPI a partir dos Minimal APIs (via `AddEndpointsApiExplorer`) e serve a interface visual do Swagger UI para testes manuais, sem precisar de `curl`/Postman |
+| CORS (`Microsoft.AspNetCore.Cors`, embutido no ASP.NET Core) | 8.0 (parte do runtime, sem pacote NuGet extra) | `Scriptorium.API` | Libera o navegador a ler respostas da API a partir da origem do Oratorium (porta diferente = origem diferente); ver Bug #6 em [04-inteligencia-de-codigo.md](04-inteligencia-de-codigo.md) |
 
 ## Stack do Frontend (Oratorium)
 

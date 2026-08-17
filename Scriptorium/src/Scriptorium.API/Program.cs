@@ -38,6 +38,35 @@ builder.Services.AddScriptoriumInfrastructure(builder.Configuration);
 // /swagger/v1/swagger.json, e UseSwaggerUI() serve a PÁGINA HTML
 // interativa (Swagger UI) que lê esse JSON e desenha os formulários de
 // teste — é essa página que você vai acessar no navegador.
+// ----------------------------------------------------------------------
+// CORS — necessário porque a API e o Oratorium (frontend) são dois
+// ORIGENS diferentes do ponto de vista do navegador (portas 8110 e 8111,
+// mesmo estando no mesmo host físico). Sem isso, o navegador do usuário
+// final BLOQUEIA a leitura da resposta no JavaScript do Oratorium mesmo
+// quando a API responde 200 OK com o JSON correto — é um bloqueio do
+// PRÓPRIO NAVEGADOR (Same-Origin Policy), não um erro do servidor, então
+// nem aparece nos logs da API (só no DevTools do navegador, como "CORS
+// Missing Allow Origin").
+//
+// Usamos AllowAnyOrigin (em vez de uma lista de origens específicas) de
+// propósito: essa API só expõe dados de LEITURA pública (sem
+// autenticação, sem cookies, sem nada sensível por usuário), então não há
+// risco de segurança em liberar qualquer origem — e evita repetir a
+// mesma classe de bug já vista neste projeto (um IP/endereço hardcoded
+// que precisa ser mantido sincronizado em vários lugares; ver Bug #2 em
+// docs/04-inteligencia-de-codigo.md). AllowCredentials() NÃO é usado
+// junto de AllowAnyOrigin (o navegador proíbe essa combinação), o que é
+// coerente com a API não usar cookies/sessão de qualquer forma.
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -51,6 +80,11 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+// Precisa vir ANTES do mapeamento dos endpoints (MapGet/MapDevotionalEndpoints
+// abaixo) — é o middleware que efetivamente adiciona os cabeçalhos
+// Access-Control-Allow-* nas respostas.
+app.UseCors();
 
 // APLICA MIGRATIONS PENDENTES NA INICIALIZAÇÃO.
 // Mesmo a API (que só faz leitura) precisa disso: é perfeitamente possível,

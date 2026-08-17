@@ -348,6 +348,71 @@ traduzir via LM Studio (desligado neste ambiente) e degradou
 graciosamente (`Success=False`, mensagem de erro amigável, texto original
 preservado) — exatamente o comportamento exigido pelo requisito do projeto.
 
+### Bug #5 — IP errado copiado do LM Studio para o Oratorium
+
+**Sintoma observado**: após corrigir o Bug #6 (abaixo), o front carregava
+mas mostrava "NetworkError when attempting to fetch resource" — a aba
+Rede do navegador mostrava uma tentativa de `GET` para
+`192.168.0.2:8110/today` terminando em `NS_ERROR_CONNECTION_REFUSED`,
+enquanto o usuário acessava o app em `192.168.0.11:8111`.
+
+**Causa raiz**: o valor padrão de `ORATORIUM_API_BASE_URL` no
+`docker-compose.yml` foi escrito como `http://192.168.0.2:8110` — um
+copy-paste do IP usado como padrão de `LM_STUDIO_BASE_URL` (âncora
+`x-lm-studio-url`, ver Bug #2), que é o endereço de uma máquina
+DIFERENTE (a que roda o LM Studio) do IP real do CasaOS do usuário
+(`192.168.0.11`).
+
+**Correção**: valor corrigido para `http://192.168.0.11:8110`. Diferente
+do Bug #2 (duas cópias do MESMO valor fora de sincronia), aqui era um
+único valor, só que ERRADO desde o início — âncora YAML não ajuda nesse
+caso, porque LM Studio e CasaOS são propositalmente endereços diferentes,
+não deveriam compartilhar a mesma fonte de verdade.
+
+**Como foi encontrado**: o usuário reportou o erro com prints do DevTools
+do navegador (aba Rede) mostrando exatamente qual endereço a requisição
+tentou alcançar — sem essa evidência visual, a causa (IP de outra
+máquina) não seria óbvia só a partir da mensagem genérica "NetworkError".
+
+### Bug #6 — CORS ausente bloqueava o front de ler a resposta da API
+
+**Sintoma observado**: mesmo depois do Bug #5 corrigido (IP certo), o
+front continuava mostrando "NetworkError". A aba Rede mostrava a chamada
+para `today`/`{data}` com status `200 OK` e o corpo JSON correto visível
+no painel de Resposta — mas com o aviso "O corpo da resposta não está
+disponível para scripts (motivo: CORS Missing Allow Origin)".
+
+**Causa raiz**: `Scriptorium.API` nunca enviava cabeçalhos
+`Access-Control-Allow-*`. Isso não é um erro de servidor (por isso o
+status HTTP era 200 e os dados vinham certos) — é a *Same-Origin Policy*
+do PRÓPRIO NAVEGADOR bloqueando o JavaScript do Oratorium de LER uma
+resposta vinda de uma origem diferente (`192.168.0.11:8110`, a API, é uma
+origem distinta de `192.168.0.11:8111`, o Oratorium, mesmo estando no
+mesmo host — porta diferente já conta como origem diferente).
+
+**Correção**: adicionado `builder.Services.AddCors(...)` com
+`AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()` e `app.UseCors()` em
+`Scriptorium.API/Program.cs` (antes do mapeamento dos endpoints).
+`AllowAnyOrigin` (em vez de uma lista de origens específicas) foi escolha
+deliberada: a API só expõe leitura pública sem autenticação/cookies, não
+há dado sensível em jogo, e evita introduzir mais um endereço para manter
+sincronizado (a mesma classe de problema do Bug #2/#5) — `AllowCredentials()`
+não é usado, o que é coerente (o navegador proíbe combiná-lo com
+`AllowAnyOrigin`, e a API não usa cookies/sessão mesmo).
+
+**Como foi encontrado**: o usuário reportou "a API está respondendo, mas
+a tela não mostra nada" com dois prints do DevTools — um da aba Rede
+mostrando o `200 OK`, outro do painel de Resposta mostrando o aviso de
+CORS explicitamente. Sem essas duas evidências juntas (resposta 200 +
+aviso específico de CORS), o sintoma isolado ("não mostra nada") seria
+indistinguível de um erro de IP (Bug #5) ou de um bug de renderização no
+React.
+
+**Lição geral**: erros de CORS são silenciosos do lado do servidor — não
+aparecem em nenhum log da API, só no DevTools do navegador de quem está
+acessando. Isso reforça o valor de pedir print da aba Rede/Console
+sempre que um frontend "não mostra nada" sem mensagem de erro clara.
+
 ---
 
 ## 4. Limitações conhecidas e assumidas conscientemente

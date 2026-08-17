@@ -233,6 +233,31 @@ sendo um processo de background puro, não há uma forma trivial e nativa do
 Docker de perguntar "você está saudável?" a ele (o monitoramento de sua
 saúde é feito pelos próprios logs — ver seção de troubleshooting abaixo).
 
+### Escalonamento da inicialização (`depends_on`)
+
+Além do healthcheck em si, os três serviços têm `depends_on` encadeados
+para NÃO subirem todos ao mesmo tempo:
+
+```yaml
+scriptorium-api      # sobe primeiro, sem dependências
+scriptorium-worker:
+  depends_on:
+    scriptorium-api:
+      condition: service_healthy   # espera a API responder /health
+oratorium:
+  depends_on:
+    scriptorium-worker:
+      condition: service_started   # espera o container do Worker iniciar
+```
+
+Nenhum desses vínculos é uma dependência **funcional** de verdade (a API
+não precisa do Worker rodando, e vice-versa; migrations são aplicadas de
+forma idempotente pelos dois — ver seção seguinte). É puramente uma forma
+de espalhar no tempo o custo de inicialização de três processos (dois
+`dotnet` + um `nginx`) num host de homelab modesto, em vez de tudo
+competir por CPU no mesmo instante. Ver também a seção sobre build
+sequencial, abaixo — o mesmo motivo se aplica lá.
+
 ### Migrations do banco de dados aplicadas automaticamente
 
 Tanto o `Program.cs` da API quanto o `DailyDevotionalWorker` do Worker
@@ -245,30 +270,65 @@ primeiro já cria o schema do banco dentro do volume.
 
 ## Passo a passo de deploy
 
+**Por que buildar um serviço de cada vez**: `docker compose up -d --build`
+manda o Compose construir TODAS as imagens em paralelo por padrão. Num
+host de homelab modesto, isso significa o `dotnet build` da API, o
+`dotnet build` do Worker e o `npm run build` do Oratorium competindo por
+CPU/RAM ao mesmo tempo — o motivo real de o servidor "engasgar" durante o
+deploy. A correção é simplesmente rodar `docker compose build <serviço>`
+uma vez por serviço (cada comando roda até terminar antes do próximo
+começar), em vez de um único `up --build` que dispara os três de uma vez.
+O escalonamento via `depends_on` (seção anterior) cuida da parte de LIGAR
+os containers depois que as imagens já existem.
+
 ```bash
 # 1) (opcional) defina o IP do LM Studio via variável de ambiente,
 #    OU edite diretamente a âncora x-lm-studio-url no docker-compose.yml
 export LM_STUDIO_BASE_URL="http://192.168.0.2:1234"
 
-# 2) a partir da raiz do monorepo (onde está o docker-compose.yml):
-docker compose up -d --build
+# 2) a partir da raiz do monorepo (onde está o docker-compose.yml),
+#    construa cada imagem SEPARADAMENTE (um comando de cada vez):
+docker compose build scriptorium-api
+docker compose build scriptorium-worker
+docker compose build oratorium
 
-# 3) acompanhe os logs do Worker na primeira execução:
+# 3) só então suba os três containers (sem --build; as imagens já existem,
+#    e o `depends_on` de cada serviço faz eles ligarem em sequência):
+docker compose up -d
+
+# 4) acompanhe os logs do Worker na primeira execução:
 docker compose logs -f scriptorium-worker
 
-# 4) teste a API:
+# 5) teste a API e o front:
 curl http://localhost:8110/api/devotional/today
-# ou abra no navegador: http://<ip-do-casaos>:8110/  → Swagger UI
+# Swagger UI (teste manual da API):    http://<ip-do-casaos>:8110/
+# App do devocional (o front de fato): http://<ip-do-casaos>:8111/
 ```
 
-Para atualizar depois de alterar código:
+Para atualizar depois de alterar código, repita os passos 2 e 3 (build
+separado por serviço, depois `up -d` sem `--build`).
 
-```bash
-docker compose up -d --build
-```
+### "Só vejo o Swagger, onde está o front do Oratorium?"
 
-(o `--build` força a reconstrução das imagens a partir do código atual;
-sem ele, o Compose reaproveitaria as imagens antigas já existentes).
+Isso é esperado se você abrir a **porta 8110** — ela é exclusivamente da
+API (`scriptorium-api`), e desde que o Swagger foi adicionado
+(`Program.cs`), a raiz `/` dela sempre mostra a UI do Swagger, nunca o
+front. O front React fica num container **separado**, na **porta 8111**
+(`http://<ip-do-casaos>:8111/`).
+
+Se a porta 8111 não responder nada, o container `oratorium` provavelmente
+não chegou a subir. Verifique nesta ordem:
+
+1. `git pull` no servidor — se o `docker-compose.yml` local ainda for de
+   antes do serviço `oratorium` existir, ele nunca será criado. Confirme
+   com `grep oratorium docker-compose.yml`.
+2. `docker compose ps` — deve listar `abbatia-oratorium`. Se não listar,
+   ele não foi buildado/iniciado (rode o passo 2 do deploy acima).
+3. `docker compose logs oratorium` — se o container existe mas está
+   reiniciando ou "unhealthy", o motivo aparece aqui.
+4. Se você gerencia os containers pelo painel do CasaOS (em vez da linha
+   de comando), reimporte/atualize o compose file por lá — o painel pode
+   estar com a definição antiga em cache, sem o serviço `oratorium`.
 
 ## Backup do banco de dados
 

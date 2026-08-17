@@ -13,10 +13,42 @@
 #      vai usar para falar com a API, então precisa ser alcançável de fora
 #      do Docker (não pode ser "scriptorium-api", nome só resolvível dentro
 #      da rede interna do Compose).
-#   3) Rode: docker compose up -d --build
-#   4) O app ficará disponível em http://<ip-do-casaos>:8111/
-#      A API ficará disponível em http://<ip-do-casaos>:8110/api/devotional/today
-#      (ou em /swagger para uma interface visual de teste — ver Program.cs)
+#   3) Faça o BUILD de cada serviço SEPARADAMENTE (um comando por vez, não
+#      "docker compose up -d --build"). Isso evita que o `dotnet build` da
+#      API, o `dotnet build` do Worker e o `npm run build` do Oratorium
+#      rodem TODOS AO MESMO TEMPO disputando CPU/RAM do servidor — o
+#      Compose, por padrão, builda todos os serviços em paralelo quando
+#      recebe um único comando com --build:
+#        docker compose build scriptorium-api
+#        docker compose build scriptorium-worker
+#        docker compose build oratorium
+#   4) Depois que as 3 imagens estiverem construídas, suba os containers:
+#        docker compose up -d
+#      (sem --build aqui — as imagens já existem; ver `depends_on` de cada
+#      serviço abaixo para o escalonamento também na hora de LIGAR os
+#      containers, não só no build)
+#   5) A API (Swagger/teste manual) fica em http://<ip-do-casaos>:8110/
+#      O APP do devocional (o que o usuário final vê) fica em
+#      http://<ip-do-casaos>:8111/ — são DOIS containers/portas diferentes;
+#      acessar a porta 8110 SEMPRE mostra o Swagger (é a API), nunca o
+#      front. Se 8111 não abrir, veja "SOLUÇÃO DE PROBLEMAS" mais abaixo.
+#
+# SOLUÇÃO DE PROBLEMAS — "só vejo o Swagger, cadê o front?"
+# -----------------------------------------------------------------------
+# O Swagger (porta 8110) e o Oratorium (porta 8111) são dois containers
+# INDEPENDENTES. Se você só enxerga o Swagger, o container `oratorium`
+# provavelmente não chegou a ser criado/iniciado. Causas mais comuns:
+#   a) O servidor ainda está com uma cópia antiga deste arquivo (de antes
+#      do serviço "oratorium" existir). Rode `git pull` na pasta do
+#      projeto no servidor e confirme com `grep oratorium docker-compose.yml`
+#      que o serviço aparece antes de tentar subir de novo.
+#   b) O build/start do oratorium falhou silenciosamente. Rode
+#      `docker compose ps` (deve listar abbatia-oratorium) e, se não
+#      aparecer ou estiver "unhealthy"/reiniciando, veja o motivo com
+#      `docker compose logs oratorium`.
+#   c) Se você usa o painel de apps do CasaOS (em vez da linha de comando)
+#      para gerenciar isto, reimporte/atualize o compose file por lá —
+#      o painel pode ter ficado com a definição antiga em cache.
 #
 # Definimos TRÊS SERVIÇOS:
 #   - scriptorium-api:    processo Kestrel, responde requisições HTTP (leitura rápida do SQLite)
@@ -145,6 +177,18 @@ services:
     image: abbatia/scriptorium-worker:latest
     container_name: abbatia-scriptorium-worker
     restart: unless-stopped
+    # ESCALONAMENTO DE INICIALIZAÇÃO: espera a API terminar de subir e
+    # responder saudável (via seu healthcheck, `test: curl .../health`)
+    # antes de iniciar o Worker. Sem isso, o Compose criaria os dois
+    # containers .NET praticamente ao mesmo tempo — em um servidor modesto,
+    # dois processos `dotnet` inicializando (JIT, carregar o runtime, etc)
+    # ao mesmo tempo é mais pesado do que um de cada vez. Não é uma
+    # dependência FUNCIONAL (o Worker aplicaria a própria migration do
+    # banco mesmo se subisse primeiro — ver DailyDevotionalWorker.cs), é
+    # puramente para não sobrecarregar o servidor no boot.
+    depends_on:
+      scriptorium-api:
+        condition: service_healthy
     environment:
       # Mesmo arquivo SQLite da API, mesmo volume — o Worker ESCREVE aqui,
       # a API só LÊ (ver comentários em DailyDevotionalWorker.cs sobre essa
@@ -198,9 +242,17 @@ services:
       # serviço "scriptorium-api". Trocar este valor só exige reiniciar o
       # container (não uma reconstrução da imagem) — ver
       # Oratorium/docker-entrypoint.d/40-oratorium-env.sh.
-      ORATORIUM_API_BASE_URL: "http://192.168.0.2:8110"
+      ORATORIUM_API_BASE_URL: "http://192.168.0.11:8110"
+    # Espera o Worker ao menos TER SIDO INICIADO (`service_started`, não
+    # `service_healthy` — o Worker não expõe HTTP, então não tem
+    # healthcheck para aguardar) antes de subir o nginx do Oratorium. Essa
+    # dependência também não é funcional (o Oratorium só fala com a API,
+    # nunca com o Worker) — é o terceiro e último elo do escalonamento de
+    # boot: api (saudável) -> worker (iniciado) -> oratorium, para não
+    # ligar os 3 containers de uma vez só.
     depends_on:
-      - scriptorium-api
+      scriptorium-worker:
+        condition: service_started
     # O Oratorium é só um servidor nginx entregando arquivos estáticos —
     # ainda mais leve que a API/Worker em .NET, por isso o limite é bem
     # menor (128MB é generoso; o nginx sozinho normalmente usa poucos MB).
