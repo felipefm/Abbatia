@@ -538,6 +538,35 @@ de verificação ponta-a-ponta que pegou o Bug #8.
 
 ---
 
+### Bug #10 — `/api/devotional/calendar/{ano}/{mes}` derrubava com 500 se um dia falhasse
+
+**Sintoma observado**: em produção, o calendário mensal do Oratorium não
+carregava — só as iniciais dos dias da semana apareciam, com a mensagem
+"Não foi possível carregar o calendário." `curl` direto contra
+`/api/devotional/calendar/2026/8` confirmou `500` com corpo vazio, enquanto
+`/api/devotional/today` (já rodando a mesma versão nova da API) respondia
+normalmente.
+
+**Causa raiz**: `CalendarEndpoints.GetMonthAsync` chama
+`ILiturgicalCalendarScraper.GetForDateAsync` direto, num loop de até 31
+dias, sem nenhum tratamento de exceção — diferente de todo outro lugar do
+projeto que usa scrapers, que sempre passa por um envoltório que isola
+falha individual (`SafeScrapeAsync`, em `DevotionalBuilderService`).
+Qualquer soluço numa única chamada (timeout, rede instável) derrubava o
+endpoint inteiro.
+
+**Correção**: a chamada ao scraper ao vivo agora fica dentro de um
+try/catch por dia, logando a falha e caindo para "Feria do dia ..." nesse
+dia específico — mesmo padrão de fallback que os dias fora do intervalo
+raspável já usavam.
+
+**Como foi encontrado**: `curl` direto contra a API de produção (acessível
+via `localhost:8110` no mesmo host), comparando o status de
+`/calendar/2026/8` (500) contra `/today` (200) pra isolar que o problema
+era específico desse endpoint, não da API como um todo.
+
+---
+
 ## 4. Limitações conhecidas e assumidas conscientemente
 
 | Limitação | Onde | Por quê é aceitável |
