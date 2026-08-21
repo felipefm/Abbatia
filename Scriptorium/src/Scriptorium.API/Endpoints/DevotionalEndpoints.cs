@@ -141,14 +141,12 @@ public static class DevotionalEndpoints
 
         if (devotional is null)
         {
-            var maxScrapableDate = LiturgicalClock.Today().AddYears(5);
-
-            if (date < MinScrapableDate || date > maxScrapableDate)
+            if (!IsWithinScrapableRange(date))
             {
                 return Results.NotFound(new
                 {
                     erro = $"Nenhum devocional encontrado para {date:yyyy-MM-dd}, e essa data está fora do " +
-                           $"intervalo suportado para busca ao vivo ({MinScrapableDate:yyyy-MM-dd} a {maxScrapableDate:yyyy-MM-dd}).",
+                           $"intervalo suportado para busca ao vivo ({MinScrapableDate:yyyy-MM-dd} a {LiturgicalClock.Today().AddYears(5):yyyy-MM-dd}).",
                 });
             }
 
@@ -186,7 +184,44 @@ public static class DevotionalEndpoints
             await repository.UpsertAsync(devotional, cancellationToken);
             logger.LogInformation("Devocional de {Data:yyyy-MM-dd} montado e salvo sob demanda com sucesso.", date);
         }
+        else if (devotional.Readings.Count == 0 && IsWithinScrapableRange(date))
+        {
+            // REGISTRO INCOMPLETO: a data já foi processada (existe no banco),
+            // mas sem leituras — sinal de que o scraper de liturgia falhou
+            // naquele dia especificamente (site fora do ar, artigo ainda não
+            // publicado no instante em que o Worker rodou, etc), enquanto os
+            // outros scrapers (santo, homilia) foram bem. Como o Worker só
+            // reprocessa os PRÓXIMOS dias a partir de "hoje" (ver
+            // DailyDevotionalWorker.RunOnceAsync), uma vez que a data vira
+            // passado ela nunca mais seria revisitada — então é a API quem
+            // precisa tentar de novo aqui, na leitura. Só tentamos completar
+            // (nunca substituímos Santo/Homilia já salvos): UpsertAsync só
+            // sobrescreve esses campos quando o resultado da nova raspagem
+            // não é nulo, então uma falha repetida do scraper de liturgia não
+            // apaga dado nenhum que já estava certo.
+            logger.LogInformation(
+                "Devocional de {Data:yyyy-MM-dd} está no banco sem leituras; tentando completar sob demanda.",
+                date);
+
+            var rebuilt = await builder.BuildAsync(date, cancellationToken);
+
+            if (rebuilt.Readings.Count > 0)
+            {
+                await repository.UpsertAsync(rebuilt, cancellationToken);
+                devotional = await repository.GetByDateAsync(date, cancellationToken) ?? devotional;
+                logger.LogInformation("Leituras de {Data:yyyy-MM-dd} completadas sob demanda com sucesso.", date);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Tentativa de completar leituras de {Data:yyyy-MM-dd} sob demanda não encontrou nada; devolvendo registro como está.",
+                    date);
+            }
+        }
 
         return Results.Ok(DevotionalResponse.FromEntity(devotional));
     }
+
+    private static bool IsWithinScrapableRange(DateOnly date)
+        => date >= MinScrapableDate && date <= LiturgicalClock.Today().AddYears(5);
 }
