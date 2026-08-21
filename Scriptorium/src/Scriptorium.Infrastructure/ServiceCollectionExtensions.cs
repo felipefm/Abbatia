@@ -49,6 +49,7 @@ public static class ServiceCollectionExtensions
             options.UseSqlite(connectionString));
 
         services.AddScoped<IDevotionalRepository, DevotionalRepository>();
+        services.AddScoped<IDiaryRepository, DiaryRepository>();
 
         // ---------------------------------------------------------------
         // OPTIONS PATTERN: configuração do LM Studio
@@ -98,6 +99,12 @@ public static class ServiceCollectionExtensions
             ConfigureDefaultHeaders(client);
         });
 
+        services.AddHttpClient("VaticanNewsSaints", client =>
+        {
+            client.BaseAddress = new Uri("https://www.vaticannews.va/");
+            ConfigureDefaultHeaders(client);
+        });
+
         // Cliente do LM Studio: BaseAddress é lido DINAMICAMENTE das
         // Options (e não fixado aqui como os demais) exatamente porque este
         // é o endereço que PRECISA ser configurável via variável de
@@ -126,6 +133,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISaintOfTheDayScraper, CancaoNovaSaintScraper>();
         services.AddScoped<ILiturgyScraper, CancaoNovaLiturgyScraper>();
         services.AddScoped<IHomilyScraper, VaticanHomilyScraper>();
+        services.AddScoped<IOtherSaintsScraper, VaticanNewsOtherSaintsScraper>();
 
         // O scraper do GCatholic é Singleton DE PROPÓSITO: ele mantém um
         // cache em memória do calendário anual (~170KB de HTML por ano) para

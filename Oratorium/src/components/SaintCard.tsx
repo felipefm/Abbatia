@@ -1,14 +1,10 @@
+import { Card } from './Card'
 import { Paragraphs } from './Paragraphs'
 import type { SaintResponse } from '../api/types'
 
 export function SaintCard({ saint }: { saint: SaintResponse }) {
   return (
-    <section className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-neutral-900">
-      <p className="text-xs font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400">
-        Santo do Dia
-      </p>
-      <h2 className="mt-1 font-serif-reading text-xl text-neutral-900 dark:text-neutral-50">{saint.name}</h2>
-
+    <Card id="saint" eyebrow="Santo do Dia" title={saint.name}>
       {saint.imageUrl && (
         <img
           src={saint.imageUrl}
@@ -22,6 +18,6 @@ export function SaintCard({ saint }: { saint: SaintResponse }) {
         text={saint.biography}
         className="mt-4 font-serif-reading text-[18px] leading-[1.8] text-neutral-700 dark:text-neutral-300"
       />
-    </section>
+    </Card>
   )
 }

@@ -35,6 +35,7 @@ public class DevotionalBuilderService(
     ILiturgyScraper liturgyScraper,
     ILiturgicalCalendarScraper calendarScraper,
     IHomilyScraper homilyScraper,
+    IOtherSaintsScraper otherSaintsScraper,
     ITranslationService translationService,
     ILogger<DevotionalBuilderService> logger)
 {
@@ -55,13 +56,15 @@ public class DevotionalBuilderService(
         var liturgyTask = SafeScrapeAsync(() => liturgyScraper.GetForDateAsync(date, cancellationToken), nameof(liturgyScraper));
         var calendarTask = SafeScrapeAsync(() => calendarScraper.GetForDateAsync(date, cancellationToken), nameof(calendarScraper));
         var homilyTask = SafeScrapeAsync(() => homilyScraper.GetForDateAsync(date, cancellationToken), nameof(homilyScraper));
+        var otherSaintsTask = SafeScrapeAsync(() => otherSaintsScraper.GetForDateAsync(date, cancellationToken), nameof(otherSaintsScraper));
 
-        await Task.WhenAll(saintTask, liturgyTask, calendarTask, homilyTask);
+        await Task.WhenAll(saintTask, liturgyTask, calendarTask, homilyTask, otherSaintsTask);
 
         var saintResult = saintTask.Result;
         var liturgyResult = liturgyTask.Result;
         var calendarResult = calendarTask.Result;
         var homilyResult = homilyTask.Result;
+        var otherSaintsResult = otherSaintsTask.Result;
 
         // A cor litúrgica "oficial" vem da página de liturgia diária (fonte
         // primária). Se por algum motivo ela não veio (site fora do ar,
@@ -106,6 +109,18 @@ public class DevotionalBuilderService(
         if (homilyResult is not null)
         {
             devotional.Homily = await BuildHomilyWithTranslationAsync(homilyResult, cancellationToken);
+        }
+
+        // Só atribuímos quando o scrape teve sucesso (não-nulo) — deixar
+        // como lista vazia (o default) numa falha evita que o repositório
+        // apague "outros santos" já salvos de uma raspagem anterior bem-
+        // sucedida (ver DevotionalRepository.UpsertAsync).
+        if (otherSaintsResult is not null)
+        {
+            devotional.OtherSaints = otherSaintsResult
+                .Where(o => saintResult is null || !SaintNameMatcher.IsLikelySamePerson(o.Name, saintResult.Name))
+                .Select(o => new OtherSaintOfDay { Name = o.Name, ShortBiography = o.ShortBiography })
+                .ToList();
         }
 
         return devotional;

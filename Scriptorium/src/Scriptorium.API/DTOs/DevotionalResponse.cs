@@ -34,7 +34,8 @@ public sealed record DevotionalResponse(
     string LiturgicalColor,
     SaintResponse? Saint,
     IReadOnlyList<ReadingResponse> Readings,
-    HomilyResponse? Homily)
+    HomilyResponse? Homily,
+    IReadOnlyList<OtherSaintResponse> OtherSaints)
 {
     /// <summary>
     /// Método de "mapeamento" (converte a entidade de Domain para o DTO de
@@ -54,13 +55,20 @@ public sealed record DevotionalResponse(
             .OrderBy(r => r.Type) // Garante a ordem litúrgica correta (1ª Leitura, Salmo, 2ª Leitura, Evangelho) independente da ordem em que vieram do banco.
             .Select(ReadingResponse.FromEntity)
             .ToList(),
-        Homily: entity.Homily is null ? null : HomilyResponse.FromEntity(entity.Homily));
+        Homily: entity.Homily is null ? null : HomilyResponse.FromEntity(entity.Homily),
+        OtherSaints: entity.OtherSaints.Select(OtherSaintResponse.FromEntity).ToList());
 }
 
 public sealed record SaintResponse(string Name, string Biography, string? ImageUrl)
 {
     public static SaintResponse FromEntity(SaintOfTheDay entity) =>
         new(entity.Name, entity.Biography, entity.ImageUrl);
+}
+
+public sealed record OtherSaintResponse(string Name, string ShortBiography)
+{
+    public static OtherSaintResponse FromEntity(OtherSaintOfDay entity) =>
+        new(entity.Name, entity.ShortBiography);
 }
 
 public sealed record ReadingResponse(string Type, string Reference, string Text)

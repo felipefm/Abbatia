@@ -116,13 +116,6 @@ public static class DevotionalEndpoints
         return await FetchAndRespondAsync(repository, builder, logger, parsedDate, cancellationToken);
     }
 
-    // Limites de sanidade para o scraping sob demanda: nenhuma das 4 fontes
-    // publica calendário litúrgico fora desta janela, então nem vale a pena
-    // tentar (evita, por exemplo, alguém digitando "9999-01-01" na URL e a
-    // API ficar tentando raspar 4 sites à toa por uma data que nunca vai
-    // existir).
-    private static readonly DateOnly MinScrapableDate = new(2000, 1, 1);
-
     /// <summary>
     /// Lógica compartilhada pelos dois endpoints: busca no repositório e
     /// converte o resultado em 200 OK + DTO. Se a data não estiver no banco
@@ -141,12 +134,12 @@ public static class DevotionalEndpoints
 
         if (devotional is null)
         {
-            if (!IsWithinScrapableRange(date))
+            if (!ScrapableDateRange.Contains(date))
             {
                 return Results.NotFound(new
                 {
                     erro = $"Nenhum devocional encontrado para {date:yyyy-MM-dd}, e essa data está fora do " +
-                           $"intervalo suportado para busca ao vivo ({MinScrapableDate:yyyy-MM-dd} a {LiturgicalClock.Today().AddYears(5):yyyy-MM-dd}).",
+                           $"intervalo suportado para busca ao vivo ({ScrapableDateRange.MinScrapableDate:yyyy-MM-dd} a {ScrapableDateRange.MaxScrapableDate:yyyy-MM-dd}).",
                 });
             }
 
@@ -184,7 +177,7 @@ public static class DevotionalEndpoints
             await repository.UpsertAsync(devotional, cancellationToken);
             logger.LogInformation("Devocional de {Data:yyyy-MM-dd} montado e salvo sob demanda com sucesso.", date);
         }
-        else if (devotional.Readings.Count == 0 && IsWithinScrapableRange(date))
+        else if (devotional.Readings.Count == 0 && ScrapableDateRange.Contains(date))
         {
             // REGISTRO INCOMPLETO: a data já foi processada (existe no banco),
             // mas sem leituras — sinal de que o scraper de liturgia falhou
@@ -221,7 +214,4 @@ public static class DevotionalEndpoints
 
         return Results.Ok(DevotionalResponse.FromEntity(devotional));
     }
-
-    private static bool IsWithinScrapableRange(DateOnly date)
-        => date >= MinScrapableDate && date <= LiturgicalClock.Today().AddYears(5);
 }

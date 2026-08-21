@@ -70,3 +70,19 @@ public interface IHomilyScraper
     /// </summary>
     Task<HomilyScrapeResult?> GetForDateAsync(DateOnly date, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Estratégia para raspar a lista de santos comemorados numa data no
+/// Vatican News (santoral fixo por mês/dia, independente de ano) — usada
+/// pra alimentar o widget "outros santos do dia" do Oratorium.
+/// </summary>
+public interface IOtherSaintsScraper
+{
+    /// <summary>
+    /// Devolve TODOS os santos que a página do Vatican News lista para essa
+    /// data (sem distinguir "principal" de "outros" — isso é decidido por
+    /// quem chama). <c>null</c> = falha total (página inacessível); lista
+    /// vazia = página carregou mas não achou nenhuma seção reconhecível.
+    /// </summary>
+    Task<IReadOnlyList<OtherSaintScrapeResult>?> GetForDateAsync(DateOnly date, CancellationToken cancellationToken);
+}

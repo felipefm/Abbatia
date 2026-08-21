@@ -13,32 +13,41 @@ Scriptorium/
     │   │   ├── DailyDevotional.cs   ← raiz do agregado
     │   │   ├── Reading.cs
     │   │   ├── SaintOfTheDay.cs
-    │   │   └── Homily.cs
-    │   └── Enums/
-    │       ├── LiturgicalColor.cs
-    │       ├── ReadingType.cs
-    │       └── TranslationStatus.cs
+    │   │   ├── OtherSaintOfDay.cs
+    │   │   ├── Homily.cs
+    │   │   └── DiaryEntry.cs        ← independente de DailyDevotional
+    │   ├── Enums/
+    │   │   ├── LiturgicalColor.cs
+    │   │   ├── ReadingType.cs
+    │   │   └── TranslationStatus.cs
+    │   └── ScrapableDateRange.cs    ← limites de data pro scraping sob demanda
     │
     ├── Scriptorium.Application/     ← casos de uso e contratos (interfaces)
     │   ├── DTOs/ScrapeResults.cs    ← resultados brutos dos scrapers
     │   ├── Interfaces/
-    │   │   ├── IScrapers.cs         ← ISaintOfTheDayScraper, ILiturgyScraper, ILiturgicalCalendarScraper, IHomilyScraper
+    │   │   ├── IScrapers.cs         ← ISaintOfTheDayScraper, ILiturgyScraper, ILiturgicalCalendarScraper, IHomilyScraper, IOtherSaintsScraper
     │   │   ├── ITranslationService.cs
-    │   │   └── IDevotionalRepository.cs
-    │   ├── Services/DevotionalBuilderService.cs  ← orquestra os 4 scrapers + tradução
+    │   │   ├── IDevotionalRepository.cs
+    │   │   └── IDiaryRepository.cs
+    │   ├── Services/
+    │   │   ├── DevotionalBuilderService.cs  ← orquestra os 5 scrapers + tradução
+    │   │   └── SaintNameMatcher.cs          ← dedup entre santo principal e "outros santos"
     │   └── ServiceCollectionExtensions.cs
     │
     ├── Scriptorium.Infrastructure/  ← implementações concretas (EF Core, HTTP, scraping)
     │   ├── Data/
     │   │   ├── ScriptoriumDbContext.cs
     │   │   └── Migrations/
-    │   ├── Repositories/DevotionalRepository.cs
+    │   ├── Repositories/
+    │   │   ├── DevotionalRepository.cs
+    │   │   └── DiaryRepository.cs
     │   ├── Scrapers/
     │   │   ├── HtmlTextExtractor.cs           ← utilitário compartilhado
     │   │   ├── CancaoNovaCalendarHelper.cs     ← lógica compartilhada Santo/Liturgia
     │   │   ├── CancaoNovaSaintScraper.cs
     │   │   ├── CancaoNovaLiturgyScraper.cs
     │   │   ├── VaticanHomilyScraper.cs
+    │   │   ├── VaticanNewsOtherSaintsScraper.cs
     │   │   └── GCatholicCalendarScraper.cs
     │   ├── Translation/LmStudioTranslationService.cs
     │   ├── Options/LmStudioOptions.cs
@@ -46,8 +55,14 @@ Scriptorium/
     │
     ├── Scriptorium.API/             ← processo Kestrel (Minimal APIs)
     │   ├── Program.cs
-    │   ├── Endpoints/DevotionalEndpoints.cs
-    │   └── DTOs/DevotionalResponse.cs
+    │   ├── Endpoints/
+    │   │   ├── DevotionalEndpoints.cs
+    │   │   ├── CalendarEndpoints.cs
+    │   │   └── DiaryEndpoints.cs
+    │   └── DTOs/
+    │       ├── DevotionalResponse.cs
+    │       ├── MonthCalendarResponse.cs
+    │       └── DiaryEntryResponse.cs
     │
     └── Scriptorium.Worker/          ← BackgroundService
         ├── Program.cs
@@ -101,6 +116,7 @@ DailyDevotional (raiz do agregado)
  ├── Color: LiturgicalColor (enum)
  ├── Readings: List<Reading>            (1-para-N, cascade delete)
  ├── Saint: SaintOfTheDay?              (1-para-1, cascade delete)
+ ├── OtherSaints: List<OtherSaintOfDay> (1-para-N, cascade delete)
  └── Homily: Homily?                    (1-para-1 opcional, SetNull no delete)
 
 Reading
@@ -123,11 +139,21 @@ Homily
  ├── Status: TranslationStatus          (NaoRequerida | Pendente | FalhouTentativa | Concluida)
  ├── SourceUrl: string                  (índice UNIQUE — evita duplicar a mesma homilia)
  └── TranslationAttempts: int
+
+OtherSaintOfDay
+ ├── Name: string                       (grafia do Vatican News, ex: "S. Timóteo, mártir romano...")
+ └── ShortBiography: string             (um parágrafo)
+
+DiaryEntry                              (independente de DailyDevotional — sem FK)
+ ├── Date: DateOnly                     (única — índice UNIQUE no banco)
+ ├── Text: string
+ ├── CreatedAtUtc: DateTime
+ └── UpdatedAtUtc: DateTime
 ```
 
 Tabelas correspondentes no SQLite: `DailyDevotionals`, `Readings`, `Saints`,
-`Homilies` (nomes gerados automaticamente pelo EF Core a partir dos
-`DbSet<T>` de `ScriptoriumDbContext`).
+`OtherSaints`, `Homilies`, `DiaryEntries` (nomes gerados automaticamente
+pelo EF Core a partir dos `DbSet<T>` de `ScriptoriumDbContext`).
 
 ## Fluxo de escrita (Worker)
 
@@ -142,13 +168,15 @@ RunOnceAsync() [uma rodada]
   │
   ├─▶ para cada um dos próximos N dias (DaysAhead):
   │     DevotionalBuilderService.BuildAsync(data)
-  │       ├─▶ Task.WhenAll: dispara os 4 scrapers EM PARALELO
+  │       ├─▶ Task.WhenAll: dispara os 5 scrapers EM PARALELO
   │       │     ├─ ISaintOfTheDayScraper       (Cancão Nova)
   │       │     ├─ ILiturgyScraper              (Cancão Nova)
   │       │     ├─ ILiturgicalCalendarScraper   (gcatholic.org)
-  │       │     └─ IHomilyScraper                (vatican.va)
+  │       │     ├─ IHomilyScraper                (vatican.va)
+  │       │     └─ IOtherSaintsScraper           (vaticannews.va)
   │       ├─▶ combina os resultados (cor litúrgica: liturgia.cancaonova.com
-  │       │     é a fonte primária, gcatholic.org é o fallback)
+  │       │     é a fonte primária, gcatholic.org é o fallback; "outros
+  │       │     santos" exclui, via SaintNameMatcher, quem já é o principal)
   │       └─▶ se houver homilia em idioma != "pt": tenta traduzir via LM Studio
   │             (sucesso → Status=Concluida; falha → Status=FalhouTentativa,
   │              texto original preservado)
@@ -184,6 +212,10 @@ fique refém da latência/disponibilidade de 4 sites externos.
 |---|---|---|---|---|
 | `GET` | `/api/devotional/today` | Devocional do dia atual (UTC) | `200` + JSON | `404` se o Worker ainda não processou hoje |
 | `GET` | `/api/devotional/{date}` | Devocional de uma data específica (`yyyy-MM-dd`, ex: `2026-08-16`) | `200` + JSON | `400` formato inválido · `404` não encontrado |
+| `GET` | `/api/devotional/calendar/{year}/{month}` | Cor/título litúrgico de cada dia do mês (dias sem cache vêm ao vivo do gcatholic.org, sem persistir) | `200` + JSON | `400` ano/mês inválido |
+| `GET` | `/api/diary/{date}` | Entrada do diário espiritual de uma data | `200` + JSON | `400` formato inválido · `404` sem entrada |
+| `PUT` | `/api/diary/{date}` | Cria/atualiza a entrada do diário (`{"text": "..."}`) | `200` + JSON | `400` formato inválido ou texto vazio |
+| `DELETE` | `/api/diary/{date}` | Remove a entrada do diário | `204` | `400` formato inválido · `404` não existia |
 | `GET` | `/health` | Healthcheck simples (`{"status":"ok"}`) | `200` | — |
 | `GET` | `/` | Swagger UI (interface visual de teste) | `200` (HTML) | — |
 | `GET` | `/swagger/v1/swagger.json` | Especificação OpenAPI em JSON | `200` | — |
@@ -206,7 +238,10 @@ fique refém da latência/disponibilidade de 4 sites externos.
     { "type": "SegundaLeitura", "reference": "1Cor 15,20-27a", "text": "..." },
     { "type": "Evangelho", "reference": "Lc 1,39-56 (Cântico de Maria)", "text": "..." }
   ],
-  "homily": null
+  "homily": null,
+  "otherSaints": [
+    { "name": "S. Timóteo, mártir romano...", "shortBiography": "..." }
+  ]
 }
 ```
 
@@ -289,20 +324,30 @@ Oratorium/
     ├── env.d.ts                 ← tipos de import.meta.env e window.__ORATORIUM_CONFIG__
     ├── api/
     │   ├── types.ts              ← espelha 1:1 os DTOs de Scriptorium.API
-    │   └── client.ts             ← fetch wrapper, resolve a URL da API (runtime > build-time)
+    │   └── client.ts             ← fetch wrapper (GET/PUT/DELETE), resolve a URL da API (runtime > build-time)
     ├── hooks/
-    │   └── useDevotional.ts      ← busca dados + estados de loading/error/retry
+    │   ├── useDevotional.ts      ← busca dados + estados de loading/error/retry
+    │   ├── useMonthCalendar.ts   ← cor litúrgica de cada dia do mês
+    │   └── useDiaryEntry.ts      ← busca/salva a entrada do diário de uma data
     ├── lib/
     │   ├── date.ts                ← aritmética de datas yyyy-MM-dd em UTC
     │   ├── liturgicalColor.ts     ← mapeia LiturgicalColor → cor hex/tema
-    │   └── readingLabels.ts       ← mapeia ReadingType → rótulo em PT-BR
+    │   ├── readingLabels.ts       ← mapeia ReadingType → rótulo em PT-BR
+    │   ├── excerpt.ts             ← corta texto longo pro pull-quote da sidebar
+    │   ├── rosaryMysteries.ts     ← mistério do Rosário do dia (dia da semana)
+    │   └── liturgicalSeasons.ts   ← Páscoa (Computus) + contagem pro próximo tempo litúrgico
     ├── components/
     │   ├── AppHeader.tsx, DateNav.tsx, LiturgicalHeader.tsx
     │   ├── SaintCard.tsx, ReadingsList.tsx, HomilyCard.tsx
+    │   ├── Card.tsx                ← wrapper compartilhado (borda/padding/eyebrow) por todos os cards
+    │   ├── TableOfContents.tsx, MonthCalendar.tsx  ← barra lateral esquerda
+    │   ├── sidebar/                ← barra lateral direita: ColorMeaningCard, PullQuoteCard,
+    │   │                              HomilySourceCard, RosaryMysteryCard, SeasonCountdownCard,
+    │   │                              OtherSaintsCard, DiaryCard
     │   ├── StatusStates.tsx       ← LoadingState, ErrorState (distingue 404 de erro de rede)
     │   └── Paragraphs.tsx         ← converte texto com \n\n em <p> reais
     └── pages/
-        └── DevotionalPage.tsx     ← liga useDevotional() aos componentes de UI
+        └── DevotionalPage.tsx     ← layout de 3 colunas, liga os hooks aos componentes de UI
 ```
 
 ### Fluxo de dados
@@ -316,8 +361,13 @@ DevotionalPage
   │
   ├─ loading=true  → <LoadingState />
   ├─ error         → <ErrorState /> (mensagem diferente para 404 vs. erro de rede)
-  └─ data          → <LiturgicalHeader /> + <SaintCard /> (se houver)
+  └─ data          → coluna central: <LiturgicalHeader /> + <SaintCard /> (se houver)
                       + <ReadingsList /> + <HomilyCard /> (se houver)
+                      sidebar esquerda: <TableOfContents /> + <MonthCalendar />
+                        (useMonthCalendar() próprio, independente do fetch acima)
+                      sidebar direita: os 7 cards de components/sidebar/ — cálculo
+                        local (RosaryMystery/SeasonCountdown) ou derivado de `data`;
+                        DiaryCard usa useDiaryEntry() à parte
 ```
 
 A resolução da URL da API segue uma ordem de prioridade (ver

@@ -44,6 +44,15 @@ public interface IDevotionalRepository
     Task UpsertAsync(DailyDevotional devotional, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Busca todos os devocionais já persistidos cuja Date caia entre
+    /// <paramref name="startInclusive"/> (incluso) e <paramref name="endExclusive"/>
+    /// (excluso) — usado pelo calendário mensal. Não carrega Readings/Saint/
+    /// Homily/OtherSaints (não são necessários para colorir o calendário),
+    /// pra manter a consulta leve.
+    /// </summary>
+    Task<List<DailyDevotional>> GetByMonthRangeAsync(DateOnly startInclusive, DateOnly endExclusive, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lista todas as homilias cujo texto ainda não foi traduzido com
     /// sucesso (Status == Pendente ou FalhouTentativa). O Worker usa isso
     /// para tentar traduzir de novo em cada execução, sem depender de ter

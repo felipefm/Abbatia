@@ -65,6 +65,12 @@ public class ScriptoriumDbContext(DbContextOptions<ScriptoriumDbContext> options
     /// <summary>Tabela de homilias do Papa.</summary>
     public DbSet<Homily> Homilies => Set<Homily>();
 
+    /// <summary>Tabela de "outros santos" do dia (1-para-N com DailyDevotional).</summary>
+    public DbSet<OtherSaintOfDay> OtherSaints => Set<OtherSaintOfDay>();
+
+    /// <summary>Tabela do diário espiritual pessoal (independente de DailyDevotional).</summary>
+    public DbSet<DiaryEntry> DiaryEntries => Set<DiaryEntry>();
+
     /// <summary>
     /// Aqui usamos a "Fluent API" do EF Core para configurar detalhes do
     /// mapeamento objeto-relacional que não dá para (ou não deveria)
@@ -107,6 +113,14 @@ public class ScriptoriumDbContext(DbContextOptions<ScriptoriumDbContext> options
                   .WithOne(h => h.DailyDevotional)
                   .HasForeignKey<Homily>(h => h.DailyDevotionalId)
                   .OnDelete(DeleteBehavior.SetNull);
+
+            // Relação 1-para-N com "outros santos" do dia — mesmo padrão de
+            // Readings: se o devocional for apagado, os outros santos vão
+            // junto (não fazem sentido órfãos).
+            entity.HasMany(d => d.OtherSaints)
+                  .WithOne(o => o.DailyDevotional)
+                  .HasForeignKey(o => o.DailyDevotionalId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Homily>(entity =>
@@ -114,6 +128,13 @@ public class ScriptoriumDbContext(DbContextOptions<ScriptoriumDbContext> options
             // Evita salvar a mesma homilia duas vezes (identificada pela
             // URL de origem, que é naturalmente única por publicação).
             entity.HasIndex(h => h.SourceUrl).IsUnique();
+        });
+
+        modelBuilder.Entity<DiaryEntry>(entity =>
+        {
+            // Uma entrada de diário por data — mesmo espírito do índice
+            // único em DailyDevotional.Date.
+            entity.HasIndex(e => e.Date).IsUnique();
         });
     }
 }

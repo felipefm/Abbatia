@@ -70,6 +70,12 @@ public class DailyDevotional
     public Homily? Homily { get; set; }
 
     /// <summary>
+    /// Outros santos comemorados no mesmo dia, além de <see cref="Saint"/>
+    /// (raspados do Vatican News). Normalmente vazio ou com 1-2 itens.
+    /// </summary>
+    public List<OtherSaintOfDay> OtherSaints { get; set; } = [];
+
+    /// <summary>
     /// Timestamp (UTC) de quando este registro foi gravado/atualizado pela
     /// última vez pelo Worker. Útil para debug ("por que esse dado está
     /// desatualizado?") e para decidir se vale a pena re-raspar um dia que

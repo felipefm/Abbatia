@@ -27,6 +27,11 @@ export interface HomilyResponse {
   sourceUrl: string
 }
 
+export interface OtherSaintResponse {
+  name: string
+  shortBiography: string
+}
+
 export interface DevotionalResponse {
   date: string // yyyy-MM-dd
   liturgicalTitle: string
@@ -34,6 +39,25 @@ export interface DevotionalResponse {
   saint: SaintResponse | null
   readings: ReadingResponse[]
   homily: HomilyResponse | null
+  otherSaints: OtherSaintResponse[]
+}
+
+export interface MonthCalendarDayResponse {
+  date: string // yyyy-MM-dd
+  liturgicalTitle: string
+  liturgicalColor: LiturgicalColor
+}
+
+export interface MonthCalendarResponse {
+  year: number
+  month: number
+  days: MonthCalendarDayResponse[]
+}
+
+export interface DiaryEntryResponse {
+  date: string // yyyy-MM-dd
+  text: string
+  updatedAtUtc: string
 }
 
 export interface ApiErrorBody {

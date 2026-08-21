@@ -29,13 +29,16 @@ Abbatia/
 
 O **Scriptorium** é a API + Worker que alimentam o devocional diário. Todo
 dia de madrugada, um processo em background (`Scriptorium.Worker`) sai
-raspando 4 sites diferentes (Santo do Dia, Liturgia Diária, Homilias do
-Papa e Calendário Litúrgico), traduz o que precisar via uma IA local
-(LM Studio) e salva tudo num banco SQLite. Uma API separada
-(`Scriptorium.API`) só **lê** esse banco e expõe duas rotas HTTP simples.
+raspando 5 sites diferentes (Santo do Dia, Liturgia Diária, Homilias do
+Papa, Calendário Litúrgico e Outros Santos do Dia), traduz o que precisar
+via uma IA local (LM Studio) e salva tudo num banco SQLite. Uma API
+separada (`Scriptorium.API`) só **lê** esse banco e expõe as rotas de
+devocional, calendário mensal e diário espiritual (ver
+[03-codigo.md](03-codigo.md#referência-dos-endpoints-http)).
 O **Oratorium** é a interface de leitura: um app React (PWA, instalável no
-celular) que consome essa API e exibe o devocional do dia, com navegação
-entre datas. Os três processos rodam em containers Docker separados; API e
+celular) que consome essa API e exibe o devocional do dia num layout de 3
+colunas (sumário + calendário à esquerda, widgets à direita), com
+navegação entre datas. Os três processos rodam em containers Docker separados; API e
 Worker compartilham o mesmo arquivo SQLite via um volume Docker, e o
 Oratorium fala com a API por HTTP comum através da rede local.
 

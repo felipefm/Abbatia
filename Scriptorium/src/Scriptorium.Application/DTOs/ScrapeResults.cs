@@ -57,6 +57,9 @@ public sealed record LiturgicalCalendarScrapeResult(
     string CelebrationName,
     string? Rank);
 
+/// <summary>Resultado bruto do scraping de UM santo listado no Vatican News.</summary>
+public sealed record OtherSaintScrapeResult(string Name, string ShortBiography);
+
 /// <summary>Resultado bruto do scraping de UMA homilia do Papa.</summary>
 public sealed record HomilyScrapeResult(
     string Title,

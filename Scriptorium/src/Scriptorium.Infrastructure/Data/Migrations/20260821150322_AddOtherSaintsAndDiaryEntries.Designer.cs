@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Scriptorium.Infrastructure.Data;
 
@@ -10,9 +11,11 @@ using Scriptorium.Infrastructure.Data;
 namespace Scriptorium.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(ScriptoriumDbContext))]
-    partial class ScriptoriumDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260821150322_AddOtherSaintsAndDiaryEntries")]
+    partial class AddOtherSaintsAndDiaryEntries
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");

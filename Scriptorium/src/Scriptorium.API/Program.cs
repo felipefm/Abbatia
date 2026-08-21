@@ -134,4 +134,10 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
 // (implementadas em Scriptorium.API/Endpoints/DevotionalEndpoints.cs).
 app.MapDevotionalEndpoints();
 
+// Registra /api/devotional/calendar/{year}/{month} (calendário mensal).
+app.MapCalendarEndpoints();
+
+// Registra o CRUD /api/diary/{date} (diário espiritual pessoal).
+app.MapDiaryEndpoints();
+
 app.Run();

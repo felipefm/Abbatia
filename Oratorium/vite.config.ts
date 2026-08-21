@@ -35,6 +35,11 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
+            // Cobre tanto /api/devotional/{date} quanto
+            // /api/devotional/calendar/{year}/{month} (o padrão é um
+            // "contém", não uma âncora de início) — mesmo comportamento
+            // NetworkFirst serve bem os dois, não precisa de uma regra
+            // separada só pro calendário.
             urlPattern: /\/api\/devotional\//,
             handler: 'NetworkFirst',
             options: {
@@ -42,6 +47,13 @@ export default defineConfig({
               networkTimeoutSeconds: 5,
               expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 3 },
             },
+          },
+          {
+            // Diário é escrita (PUT/DELETE) — nunca cachear, pra nunca
+            // mostrar/aceitar como sucesso algo que não foi de fato salvo
+            // no servidor.
+            urlPattern: /\/api\/diary\//,
+            handler: 'NetworkOnly',
           },
         ],
       },

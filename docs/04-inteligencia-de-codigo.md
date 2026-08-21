@@ -513,6 +513,31 @@ log de erro, o resultado só é silenciosamente incompleto.
 
 ---
 
+### Bug #9 — `SaintNameMatcher` não reconhecia o mesmo santo em fontes diferentes
+
+**Sintoma observado**: testando o scraper de "outros santos" (Vatican
+News) contra o dia 21/08/2026, o santo principal ("São Pio X") aparecia
+DE NOVO na lista de "outros santos" — deveria ter sido excluído por já
+ser o santo do dia.
+
+**Causa raiz**: dois problemas no dedup por nome. (1) `Normalize()`
+remove acentos ANTES de tirar prefixos honoríficos, mas a lista de
+prefixos ainda tinha `"são "` com acento — nunca batia contra o texto já
+sem acento. (2) mesmo corrigido o acento, "Pio X, o Papa camponês"
+(CancaoNova) e "Pio X, papa" (Vatican News) não são substring um do
+outro — cada fonte pendura um epíteto diferente depois da vírgula.
+
+**Correção**: prefixos da lista passaram a ser sem acento (`"sao "`), e a
+comparação agora extrai o "nome núcleo" (tudo antes da primeira vírgula)
+de cada lado antes de testar conteção mútua, com fallback pra string
+inteira quando não há vírgula.
+
+**Como foi encontrado**: rodando a API localmente contra as fontes reais
+(não um teste unitário) e inspecionando o JSON de resposta — o mesmo tipo
+de verificação ponta-a-ponta que pegou o Bug #8.
+
+---
+
 ## 4. Limitações conhecidas e assumidas conscientemente
 
 | Limitação | Onde | Por quê é aceitável |

@@ -28,8 +28,20 @@ public class DevotionalRepository(ScriptoriumDbContext dbContext) : IDevotionalR
             .Include(d => d.Readings)
             .Include(d => d.Saint)
             .Include(d => d.Homily)
+            .Include(d => d.OtherSaints)
             .AsNoTracking() // Leitura pura: não precisamos rastrear mudanças, o que melhora performance.
             .FirstOrDefaultAsync(d => d.Date == date, cancellationToken);
+    }
+
+    public async Task<List<DailyDevotional>> GetByMonthRangeAsync(DateOnly startInclusive, DateOnly endExclusive, CancellationToken cancellationToken)
+    {
+        // Sem nenhum .Include(): o calendário mensal só precisa de Date/
+        // LiturgicalTitle/Color (campos escalares da tabela raiz) — carregar
+        // Readings/Saint/Homily/OtherSaints aqui seria trabalho desperdiçado.
+        return await dbContext.DailyDevotionals
+            .Where(d => d.Date >= startInclusive && d.Date < endExclusive)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
     }
 
     public async Task UpsertAsync(DailyDevotional devotional, CancellationToken cancellationToken)
@@ -38,6 +50,7 @@ public class DevotionalRepository(ScriptoriumDbContext dbContext) : IDevotionalR
             .Include(d => d.Readings)
             .Include(d => d.Saint)
             .Include(d => d.Homily)
+            .Include(d => d.OtherSaints)
             .FirstOrDefaultAsync(d => d.Date == devotional.Date, cancellationToken);
 
         if (existing is null)
@@ -99,6 +112,17 @@ public class DevotionalRepository(ScriptoriumDbContext dbContext) : IDevotionalR
                     devotional.Homily.DailyDevotionalId = existing.Id;
                     await dbContext.Homilies.AddAsync(devotional.Homily, cancellationToken);
                 }
+            }
+
+            // Só sobrescreve "outros santos" quando a nova raspagem trouxe
+            // algo (Count > 0). DevotionalBuilderService só popula essa
+            // lista num scrape bem-sucedido — deixá-la vazia por default
+            // numa falha pontual do Vatican News nunca deveria apagar dados
+            // já salvos de uma raspagem anterior que tinha funcionado.
+            if (devotional.OtherSaints.Count > 0)
+            {
+                dbContext.OtherSaints.RemoveRange(existing.OtherSaints);
+                existing.OtherSaints = devotional.OtherSaints;
             }
         }
 
