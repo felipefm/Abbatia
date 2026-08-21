@@ -89,7 +89,7 @@
 # preferir sobrescrever via variável de ambiente do shell/arquivo .env na
 # hora de rodar `docker compose up` — só que agora só existe UMA ocorrência
 # dele no arquivo inteiro.
-x-lm-studio-url: &lm-studio-url "${LM_STUDIO_BASE_URL:-http://192.168.0.2:1234}"
+x-lm-studio-url: &lm-studio-url "${LM_STUDIO_BASE_URL:-http://192.168.0.12:1234}"
 
 services:
   scriptorium-api:
