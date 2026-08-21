@@ -1,7 +1,9 @@
 using Scriptorium.API.DTOs;
+using Scriptorium.Application.DTOs;
 using Scriptorium.Application.Interfaces;
 using Scriptorium.Domain;
 using Scriptorium.Domain.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace Scriptorium.API.Endpoints;
 
@@ -37,6 +39,7 @@ public static class CalendarEndpoints
         int month,
         IDevotionalRepository repository,
         ILiturgicalCalendarScraper calendarScraper,
+        ILogger<Program> logger,
         CancellationToken cancellationToken)
     {
         if (month is < 1 or > 12)
@@ -74,7 +77,22 @@ public static class CalendarEndpoints
                 continue;
             }
 
-            var live = await calendarScraper.GetForDateAsync(date, cancellationToken);
+            // Isola falha do scraper ao vivo (rede instável, timeout, site fora
+            // do ar) pra que UM dia problemático não derrube o mês inteiro —
+            // mesmo espírito do SafeScrapeAsync em DevotionalBuilderService,
+            // mas aqui não passa por lá (não queremos os OUTROS 3 scrapers
+            // completos só pra colorir um calendário).
+            LiturgicalCalendarScrapeResult? live;
+            try
+            {
+                live = await calendarScraper.GetForDateAsync(date, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Falha ao buscar cor litúrgica ao vivo para {Data:yyyy-MM-dd}; usando feria genérica.", date);
+                live = null;
+            }
+
             days.Add(new MonthCalendarDayResponse(
                 date.ToString("yyyy-MM-dd"),
                 live?.CelebrationName ?? $"Feria do dia {date:dd/MM/yyyy}",
